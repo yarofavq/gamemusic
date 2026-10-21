@@ -1,4 +1,7 @@
 import { P } from '../render/Theme.js';
+
+// Skins whose flowing cape / flip ring is drawn in blood-crimson instead of accent
+const CRIMSON_SKINS = ['witch', 'reaper', 'vampire', 'raven', 'plague', 'hellhound'];
 export function drawStar(ctx, x, y, r, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -178,7 +181,7 @@ export class Player {
       ctx.rotate(rotAngle);
 
       ctx.save();
-      ctx.strokeStyle = this.skin === 'witch' || this.skin === 'reaper' ? P.crimson : P.accent;
+      ctx.strokeStyle = CRIMSON_SKINS.includes(this.skin) ? P.crimson : P.accent;
       ctx.lineWidth = 2.8;
       ctx.setLineDash([8, 5]);
       ctx.beginPath();
@@ -190,7 +193,7 @@ export class Player {
     ctx.translate(-centerX, -centerY);
 
     // Flowing cape / scarf
-    ctx.strokeStyle = (this.skin === 'witch' || this.skin === 'reaper' || this.skin === 'vampire') ? P.crimson : P.accent;
+    ctx.strokeStyle = CRIMSON_SKINS.includes(this.skin) ? P.crimson : P.accent;
     ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(centerX - 4, this.y + 20);
@@ -225,6 +228,18 @@ export class Player {
       this.drawFrostMaiden(ctx, centerX, bottomY);
     } else if (this.skin === 'neon_ronin') {
       this.drawNeonRonin(ctx, centerX, bottomY);
+    } else if (this.skin === 'raven') {
+      this.drawRavenHerald(ctx, centerX, bottomY);
+    } else if (this.skin === 'doll') {
+      this.drawPorcelainDoll(ctx, centerX, bottomY);
+    } else if (this.skin === 'candle_monk') {
+      this.drawCandleMonk(ctx, centerX, bottomY);
+    } else if (this.skin === 'hellhound') {
+      this.drawHellhound(ctx, centerX, bottomY);
+    } else if (this.skin === 'plague') {
+      this.drawPlagueDoctor(ctx, centerX, bottomY);
+    } else if (this.skin === 'star_weaver') {
+      this.drawStarWeaver(ctx, centerX, bottomY);
     }
 
     ctx.restore();
@@ -929,29 +944,328 @@ export class Player {
     ctx.stroke();
   }
 
-  renderGhost(ctx, remoteY, remoteFlipping) {
-    // Translucent silhouette of the peer's runner (multiplayer)
+  // ---- better17 skins ----
+
+  drawRavenHerald(ctx, cx, by) {
+    // Feathered herald: dark plumage, beaked mask, crimson eye
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    // layered wing-plumage body
+    ctx.beginPath();
+    ctx.moveTo(cx - 13, by - 46);
+    ctx.quadraticCurveTo(cx - 19, by - 24, cx - 10, by);
+    ctx.lineTo(cx + 10, by);
+    ctx.quadraticCurveTo(cx + 19, by - 24, cx + 13, by - 46);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // feather notches
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 12, by - 34 + i * 11);
+      ctx.quadraticCurveTo(cx, by - 30 + i * 11, cx + 12, by - 34 + i * 11);
+      ctx.stroke();
+    }
+    // head + beak
+    ctx.fillStyle = P.ink;
+    ctx.beginPath();
+    ctx.arc(cx, by - 46, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.moveTo(cx + 6, by - 48);
+    ctx.lineTo(cx + 24, by - 44);
+    ctx.lineTo(cx + 6, by - 41);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // crimson eye
+    ctx.fillStyle = P.crimson;
+    ctx.beginPath();
+    ctx.arc(cx + 4, by - 49, 2.6 + (this.squash - 1) * 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawPorcelainDoll(ctx, cx, by) {
+    // Porcelain doll: cracked face, jointed limbs, rosette accents
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.2;
+    ctx.fillStyle = P.pale;
+    // dress (bell shape)
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, by - 40);
+    ctx.quadraticCurveTo(cx - 20, by - 18, cx - 15, by);
+    ctx.lineTo(cx + 15, by);
+    ctx.quadraticCurveTo(cx + 20, by - 18, cx + 8, by - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // dress frill line
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, by - 12);
+    ctx.quadraticCurveTo(cx, by - 8, cx + 14, by - 12);
+    ctx.stroke();
+    // head
+    ctx.fillStyle = P.pale;
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // hair curls
+    ctx.beginPath();
+    ctx.arc(cx - 11, by - 52, 5, 0, Math.PI * 2);
+    ctx.arc(cx + 11, by - 52, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    // button eyes + hairline crack
+    ctx.fillStyle = P.ink;
+    ctx.beginPath();
+    ctx.arc(cx - 4, by - 49, 1.8, 0, Math.PI * 2);
+    ctx.arc(cx + 4, by - 49, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 2, by - 58);
+    ctx.lineTo(cx + 4, by - 52);
+    ctx.lineTo(cx + 1, by - 46);
+    ctx.stroke();
+    // rosette
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.arc(cx, by - 34, 3.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawCandleMonk(ctx, cx, by) {
+    // Wax-order monk: hooded robe, candle flame halo, dripping wax sleeves
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.pale;
+    // robe
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, by - 42);
+    ctx.quadraticCurveTo(cx - 22, by - 16, cx - 14, by);
+    ctx.lineTo(cx + 14, by);
+    ctx.quadraticCurveTo(cx + 22, by - 16, cx + 12, by - 42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // hood
+    ctx.fillStyle = P.bone;
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, by - 44);
+    ctx.quadraticCurveTo(cx, by - 62, cx + 11, by - 44);
+    ctx.quadraticCurveTo(cx, by - 36, cx - 11, by - 44);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // face shadow
+    ctx.fillStyle = P.ink;
+    ctx.beginPath();
+    ctx.ellipse(cx, by - 46, 6, 4.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // candle halo: flame above hood pulsing with beat
+    const fh = 8 + this.scarfWave * 0 + Math.sin(this.scarfWave * 2.2) * 2;
+    ctx.strokeStyle = P.accent;
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.ellipse(cx, by - 68 - fh * 0.4, 3.4, fh, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // wax drips on sleeves
+    ctx.strokeStyle = P.ink;
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, by - 26);
+    ctx.lineTo(cx - 16, by - 20);
+    ctx.moveTo(cx + 16, by - 30);
+    ctx.lineTo(cx + 16, by - 22);
+    ctx.stroke();
+  }
+
+  drawHellhound(ctx, cx, by) {
+    // Hound of the pit: pointed ears, burning maw, ember tail
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    // crouched body
+    ctx.beginPath();
+    ctx.moveTo(cx - 14, by - 40);
+    ctx.quadraticCurveTo(cx - 20, by - 16, cx - 12, by);
+    ctx.lineTo(cx + 12, by);
+    ctx.quadraticCurveTo(cx + 22, by - 18, cx + 14, by - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // ears
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, by - 44);
+    ctx.lineTo(cx - 15, by - 60);
+    ctx.lineTo(cx - 3, by - 48);
+    ctx.closePath();
+    ctx.moveTo(cx + 10, by - 44);
+    ctx.lineTo(cx + 15, by - 60);
+    ctx.lineTo(cx + 3, by - 48);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // burning eyes + maw
+    ctx.fillStyle = P.crimson;
+    ctx.beginPath();
+    ctx.arc(cx - 4, by - 47, 2.4, 0, Math.PI * 2);
+    ctx.arc(cx + 4, by - 47, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.ellipse(cx, by - 40, 5.4, 2.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // ember chain collar
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    ctx.moveTo(cx - 9, by - 40);
+    ctx.quadraticCurveTo(cx, by - 36, cx + 9, by - 40);
+    ctx.stroke();
+  }
+
+  drawPlagueDoctor(ctx, cx, by) {
+    // Plague doctor: wide brim hat, long beak mask, glass eye
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    // coat
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, by - 42);
+    ctx.quadraticCurveTo(cx - 20, by - 18, cx - 13, by);
+    ctx.lineTo(cx + 13, by);
+    ctx.quadraticCurveTo(cx + 20, by - 18, cx + 12, by - 42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // coat seam + vial
+    ctx.beginPath();
+    ctx.moveTo(cx, by - 40);
+    ctx.lineTo(cx, by - 6);
+    ctx.stroke();
+    // head
+    ctx.fillStyle = P.bone;
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // beak
+    ctx.beginPath();
+    ctx.moveTo(cx + 4, by - 50);
+    ctx.quadraticCurveTo(cx + 26, by - 46, cx + 6, by - 41);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // glass eye lens
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.arc(cx + 3, by - 48, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = P.ink;
+    ctx.stroke();
+    // wide brim hat
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, by - 54);
+    ctx.lineTo(cx + 18, by - 54);
+    ctx.moveTo(cx - 7, by - 54);
+    ctx.quadraticCurveTo(cx, by - 66, cx + 7, by - 54);
+    ctx.stroke();
+  }
+
+  drawStarWeaver(ctx, cx, by) {
+    // Star weaver: constellation cloak, thread of stars, glowing hands
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    // cloak
+    ctx.beginPath();
+    ctx.moveTo(cx - 13, by - 42);
+    ctx.quadraticCurveTo(cx - 21, by - 18, cx - 13, by);
+    ctx.lineTo(cx + 13, by);
+    ctx.quadraticCurveTo(cx + 21, by - 18, cx + 13, by - 42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // constellation stitches across the cloak
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 1.8;
+    const pts = [[-8, -34], [2, -28], [-4, -18], [7, -12], [-2, -5]];
+    ctx.beginPath();
+    pts.forEach(([px, py], i) => {
+      if (i === 0) ctx.moveTo(cx + px, by + py);
+      else ctx.lineTo(cx + px, by + py);
+    });
+    ctx.stroke();
+    for (const [px, py] of pts) {
+      ctx.fillStyle = P.accent;
+      ctx.beginPath();
+      ctx.arc(cx + px, by + py, 1.9, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // head with star crown
+    ctx.strokeStyle = P.ink;
+    ctx.fillStyle = P.pale;
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawStar(ctx, cx, by - 62, 6 + (this.squash - 1) * 30, P.accent);
+    // serene eyes
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, by - 48);
+    ctx.lineTo(cx - 2, by - 48);
+    ctx.moveTo(cx + 2, by - 48);
+    ctx.lineTo(cx + 6, by - 48);
+    ctx.stroke();
+  }
+
+  renderGhost(ctx, remoteY, remoteFlipping, remoteCombo = 0) {
+    // Translucent duel silhouette of the peer's runner (multiplayer).
+    // better17: accent-tinted aura, combo flame badge, livelier bob.
     ctx.save();
-    ctx.globalAlpha = 0.32;
+    ctx.globalAlpha = 0.42;
     const cx = this.x + this.width / 2;
+    const bob = Math.sin(this.scarfWave * 1.6) * 1.6;
+    const gy = remoteY + bob;
     ctx.fillStyle = P.ink;
     ctx.strokeStyle = P.accent;
     ctx.lineWidth = 2.0;
     if (remoteFlipping) {
-      ctx.translate(cx, remoteY + this.height / 2);
+      ctx.translate(cx, gy + this.height / 2);
       ctx.rotate(this.scarfWave * 0.8);
-      ctx.translate(-cx, -(remoteY + this.height / 2));
+      ctx.translate(-cx, -(gy + this.height / 2));
     }
+    // aura ring pulsing with the peer's combo
+    if (remoteCombo > 2) {
+      ctx.strokeStyle = P.accent;
+      ctx.globalAlpha = 0.28;
+      ctx.beginPath();
+      ctx.arc(cx, gy + 24, 26 + Math.min(remoteCombo, 20) * 0.8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.globalAlpha = 0.42;
+    }
+    ctx.fillStyle = P.ink;
     ctx.beginPath();
-    ctx.rect(cx - 14, remoteY + 16, 28, 34);
+    ctx.rect(cx - 14, gy + 16, 28, 34);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(cx, remoteY + 9, 10, 0, Math.PI * 2);
+    ctx.arc(cx, gy + 9, 10, 0, Math.PI * 2);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(cx - 4, remoteY + 14);
-    ctx.quadraticCurveTo(cx - 18, remoteY + 22, cx - 30, remoteY + 18);
+    ctx.moveTo(cx - 4, gy + 14);
+    ctx.quadraticCurveTo(cx - 18, gy + 22, cx - 30, gy + 18);
     ctx.stroke();
+    // combo flame badge above the ghost's head
+    if (remoteCombo > 4) {
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = P.crimson;
+      ctx.font = "900 13px 'Georgia', serif";
+      ctx.textAlign = 'center';
+      ctx.fillText(`x${remoteCombo}`, cx, gy - 8);
+    }
     ctx.restore();
   }
 }

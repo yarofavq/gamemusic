@@ -46,6 +46,12 @@ export class ParticleSystem {
       if (skin === 'skeleton') type = i % 2 === 0 ? 'bone_shard' : 'spark_orange';
       else if (skin === 'ghost') type = i % 2 === 0 ? 'spirit_orb' : 'pencil_stroke';
       else if (skin === 'witch') type = i % 2 === 0 ? 'bat' : 'spark_orange';
+      else if (skin === 'raven') type = i % 2 === 0 ? 'feather' : 'ink_droplet';
+      else if (skin === 'doll') type = i % 2 === 0 ? 'petal' : 'pencil_stroke';
+      else if (skin === 'candle_monk') type = i % 3 === 0 ? 'spirit_orb' : 'spark_orange';
+      else if (skin === 'hellhound') type = i % 2 === 0 ? 'bat' : 'spark_orange';
+      else if (skin === 'plague') type = i % 2 === 0 ? 'spirit_orb' : 'ink_droplet';
+      else if (skin === 'star_weaver') type = i % 2 === 0 ? 'star' : 'spirit_orb';
 
       this.push({
         x: x + Math.cos(angle) * 18,
@@ -235,6 +241,84 @@ export class ParticleSystem {
     });
   }
 
+  /**
+   * better17 TRACK CLEAR blast: everything at once — triple shockwave,
+   * star & note fireworks, spirit orbs, ink rain from the sky and a
+   * rising ember column. Called at the exact end of the track.
+   */
+  emitFinaleStorm(x, y, groundY, intensity = 1) {
+    const boost = 1 + intensity * 0.5;
+
+    // Triple expanding shockwave rings (staggered radii)
+    for (let r = 0; r < 3; r++) {
+      this.push({
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        life: 0.9 - r * 0.14,
+        decay: 1.35,
+        size: 10 + r * 26,
+        rotation: 0,
+        rotSpeed: 0,
+        growth: (520 - r * 120) * boost,
+        type: 'ring'
+      });
+    }
+
+    // Star & note firework volley
+    for (let i = 0; i < 22; i++) {
+      const angle = (i / 22) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = (240 + Math.random() * 260) * boost;
+      const type = i % 3 === 0 ? 'star' : i % 3 === 1 ? 'note' : 'spirit_orb';
+      this.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 130,
+        life: 1.25,
+        decay: 0.95,
+        size: type === 'note' ? 16 + Math.random() * 9 : 5 + Math.random() * 5,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 9,
+        glyph: Math.random() < 0.5 ? '\u266A' : '\u266B',
+        type
+      });
+    }
+
+    // Ink rain falling from the sky across the whole road
+    for (let i = 0; i < 26; i++) {
+      this.push({
+        x: x + (Math.random() - 0.5) * 900,
+        y: -30 - Math.random() * 220,
+        vx: (Math.random() - 0.5) * 40,
+        vy: 240 + Math.random() * 260,
+        life: 1.5,
+        decay: 0.8,
+        size: 3 + Math.random() * 4,
+        rotation: Math.random() * Math.PI,
+        rotSpeed: (Math.random() - 0.5) * 6,
+        type: i % 4 === 0 ? 'feather' : 'ink_droplet'
+      });
+    }
+
+    // Rising ember column from the ground
+    for (let i = 0; i < 18; i++) {
+      this.push({
+        x: x + (Math.random() - 0.5) * 320,
+        y: groundY - Math.random() * 26,
+        vx: (Math.random() - 0.5) * 70,
+        vy: -180 - Math.random() * 240,
+        life: 1.3,
+        decay: 0.75,
+        size: 3 + Math.random() * 6,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 10,
+        type: i % 3 === 0 ? 'petal' : 'spark_orange'
+      });
+    }
+  }
+
   update(dt) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
@@ -331,6 +415,44 @@ export class ParticleSystem {
         ctx.beginPath();
         ctx.arc(0, 0, p.size * p.life, 0, Math.PI * 2);
         ctx.fill();
+      } else if (p.type === 'feather') {
+        // Barbed quill: central shaft + angled barbs
+        ctx.strokeStyle = P.ink;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(-p.size, p.size * 0.6);
+        ctx.quadraticCurveTo(0, -p.size, p.size, -p.size * 0.6);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-p.size * 0.4, p.size * 0.15);
+        ctx.lineTo(-p.size * 0.7, -p.size * 0.75);
+        ctx.moveTo(p.size * 0.2, -p.size * 0.1);
+        ctx.lineTo(p.size * 0.65, -p.size * 0.9);
+        ctx.stroke();
+      } else if (p.type === 'petal') {
+        // Sakura petal: soft notched ellipse
+        ctx.fillStyle = P.accent;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, p.size * 0.9, p.size * 0.55, 0.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = P.ink;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-p.size * 0.5, 0);
+        ctx.lineTo(p.size * 0.5, 0);
+        ctx.stroke();
+      } else if (p.type === 'star') {
+        // Four-point sparkle star
+        ctx.strokeStyle = P.accent;
+        ctx.lineWidth = 2.2;
+        const s = p.size * (0.6 + p.life * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(0, -s);
+        ctx.quadraticCurveTo(0, 0, s, 0);
+        ctx.quadraticCurveTo(0, 0, 0, s);
+        ctx.quadraticCurveTo(0, 0, -s, 0);
+        ctx.quadraticCurveTo(0, 0, 0, -s);
+        ctx.stroke();
       } else if (p.type === 'text_label') {
         ctx.font = `900 ${p.size}px 'Georgia', serif`;
         ctx.textAlign = 'center';

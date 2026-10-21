@@ -9,6 +9,7 @@ import { Player } from './game/Player.js';
 import { World } from './game/World.js';
 import { StoreManager } from './game/StoreManager.js';
 import { NetClient } from './game/NetClient.js';
+import { YouTubeTrack, parseYouTubeUrl } from './audio/YouTubeTrack.js';
 import { P, THEMES, applyTheme, themeAccentVec } from './render/Theme.js';
 
 const VIRTUAL_WIDTH = 1280;
@@ -60,6 +61,20 @@ class GameApp {
     this.riserPlayed = false;
     this.riserNodes = [];
 
+    // better17: TRACK CLEAR blast — grand finale at the exact end of the track
+    this.blastStarted = false;
+    this.blastT = 0;
+    this.blastVolley = 0;
+
+    // better17: track source — 'file' (local audio) or 'yt' (YouTube / YT Music link)
+    this.trackSource = 'file';
+    this.yt = null;
+    this.ytLoading = false;
+    this.ytReady = false;
+    this.calib = null;
+
+    this._vsCache = { my: -1, peer: -1 };
+
     // Pause state: 'none' | 'local' (I minimized) | 'peer' (partner minimized)
     this.pauseState = 'none';
     this.countdownTimer = null;
@@ -82,6 +97,7 @@ class GameApp {
     this.renderShopUI();
     this.renderThemeCards();
     this.applyTitleCollapse();
+    this.setupMenuTabs();
     this.setupEvents();
     this.setupNet();
 
@@ -206,6 +222,99 @@ class GameApp {
     else modal.classList.remove('title-collapsed');
   }
 
+  // ---------------- better17 menu tabs ----------------
+
+  setupMenuTabs() {
+    const tabBtns = [
+      ['btn-tab-track', 'tab-track'],
+      ['btn-tab-hero', 'tab-hero'],
+      ['btn-tab-items', 'tab-items'],
+      ['btn-tab-styles', 'tab-styles']
+    ];
+    const switchTab = (panelId) => {
+      for (const [, panel] of tabBtns) {
+        document.getElementById(panel).style.display = panel === panelId ? 'block' : 'none';
+      }
+      for (const [btn, panel] of tabBtns) {
+        document.getElementById(btn).classList.toggle('active', panel === panelId);
+      }
+    };
+    for (const [btn, panel] of tabBtns) {
+      document.getElementById(btn).addEventListener('click', (e) => {
+        e.stopPropagation();
+        switchTab(panel);
+      });
+    }
+    switchTab('tab-track');
+
+    // Track source toggle: local file vs YouTube / YT Music link
+    document.getElementById('btn-src-file').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.trackSource = 'file';
+      this.refreshSourceUI();
+    });
+    document.getElementById('btn-src-yt').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.trackSource = 'yt';
+      this.refreshSourceUI();
+    });
+    document.getElementById('btn-yt-load').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.startYtLoad();
+    });
+    document.getElementById('yt-url').addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') this.startYtLoad();
+    });
+    document.getElementById('btn-yt-start').addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!this.ytReady) this.startYtLoad();
+      else this.confirmYtStart();
+    });
+    document.getElementById('btn-calib-retry').addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('btn-calib-retry').style.display = 'none';
+      this.startCalibration();
+    });
+    const tapZone = document.getElementById('calib-tap-zone');
+    if (tapZone) {
+      tapZone.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this.registerCalibTap();
+      });
+    }
+    this.refreshSourceUI();
+  }
+
+  refreshSourceUI() {
+    const yt = this.trackSource === 'yt';
+    document.getElementById('btn-src-file').classList.toggle('active', !yt);
+    document.getElementById('btn-src-yt').classList.toggle('active', yt);
+    document.getElementById('track-file-box').style.display = yt ? 'none' : 'block';
+    document.getElementById('track-yt-box').style.display = yt ? 'block' : 'none';
+    const fBtn = document.getElementById('btn-select-file');
+    const yBtn = document.getElementById('btn-yt-start');
+    const guestMode = this.mp.active && !this.mp.isHost;
+    fBtn.style.display = 'none';
+    yBtn.style.display = 'none';
+    if (guestMode) return;
+    if (!yt) {
+      fBtn.style.display = 'inline-block';
+      fBtn.textContent = this.mp.active ? 'ЗАГРУЗИТЬ ТРЕК (ВЫ ХОСТ)' : 'ЗАГРУЗИТЬ ТРЕК И ИГРАТЬ';
+    } else {
+      yBtn.style.display = 'inline-block';
+      this.refreshYtStartButton();
+    }
+  }
+
+  refreshYtStartButton() {
+    const yBtn = document.getElementById('btn-yt-start');
+    if (!yBtn) return;
+    yBtn.textContent = this.mp.active
+      ? (this.ytReady ? 'ЗАПУСТИТЬ МАТЧ (ВЫ ХОСТ)' : 'ЗАГРУЗИ YOUTUBE-ТРЕК (ВЫ ХОСТ)')
+      : (this.ytReady ? 'ИГРАТЬ ▶' : 'ВСТАВЬ ССЫЛКУ И ЗАГРУЗИ');
+  }
+
   // ---------------- Multiplayer helpers ----------------
 
   setMpHint(text) {
@@ -240,15 +349,13 @@ class GameApp {
     document.getElementById('mp-lobby').style.display = 'none';
     document.getElementById('mp-status').style.display = 'block';
     document.getElementById('mp-code-label').textContent = `КОД КОМНАТЫ: ${code}`;
-    const fileBtn = document.getElementById('btn-select-file');
     const guestWait = document.getElementById('guest-wait');
     if (isHost) {
-      fileBtn.style.display = 'inline-block';
-      fileBtn.textContent = 'ЗАГРУЗИТЬ ТРЕК (ВЫ ХОСТ)';
-      guestWait.style.display = 'none';
-      this.setMpHint('Отправь другу ссылку на сайт и этот код: он жмёт «ИГРА С ДРУГОМ» → «ВОЙТИ».');
+      this.refreshSourceUI();
+      this.setMpHint('Отправь другу ссылку на сайт и этот код: он жмёт «ИГРА С ДРУГОМ» → «ВОЙТИ». Вход работает из ЛЮБОЙ сети.');
     } else {
-      fileBtn.style.display = 'none';
+      document.getElementById('btn-select-file').style.display = 'none';
+      document.getElementById('btn-yt-start').style.display = 'none';
       guestWait.style.display = 'block';
       this.setMpHint('В комнате. Ждём трек от хоста...');
     }
@@ -270,9 +377,8 @@ class GameApp {
     document.getElementById('peer-panel').style.display = 'none';
     document.getElementById('guest-wait').style.display = 'none';
     this.hideMpProgress();
-    const fileBtn = document.getElementById('btn-select-file');
-    fileBtn.style.display = 'inline-block';
-    fileBtn.textContent = 'ЗАГРУЗИТЬ ТРЕК И ИГРАТЬ';
+    this.mp.hostLaunched = false;
+    this.refreshSourceUI();
     document.getElementById('mp-result').style.display = 'none';
     document.getElementById('mp-result').textContent = '';
   }
@@ -361,6 +467,246 @@ class GameApp {
     res.style.display = 'block';
   }
 
+  // ---------------- YouTube source flow (better17) ----------------
+
+  async startYtLoad() {
+    if (this.ytLoading) return;
+    const urlEl = document.getElementById('yt-url');
+    const hint = document.getElementById('yt-hint');
+    const id = parseYouTubeUrl(urlEl ? urlEl.value : '');
+    if (!id) {
+      hint.textContent = 'Не похоже на ссылку YouTube / YT Music. Вставь полную ссылку на трек.';
+      return;
+    }
+    this.ytLoading = true;
+    this.ytReady = false;
+    hint.textContent = 'Открываю видео...';
+    this.menuMusic.stop();
+    try {
+      if (this.yt) this.yt.destroy();
+      this.yt = new YouTubeTrack();
+      const meta = await this.yt.load(id);
+      this.yt.setVolume(parseInt(document.getElementById('volume-slider').value, 10) || 75);
+      document.getElementById('menu-track-name').textContent = meta.title || 'YouTube-трек';
+      hint.textContent = 'Сейчас заиграет кусок трека — СЛУШАЙ БОЧКУ и ТАКАЙ В РИТМ (пробел / кнопка). Нужно хотя бы 10 тапов.';
+      this.refreshYtStartButton();
+      this.startCalibration();
+    } catch (e) {
+      hint.textContent = e.message || 'Ошибка загрузки YouTube.';
+    } finally {
+      this.ytLoading = false;
+    }
+  }
+
+  startCalibration() {
+    if (!this.yt || !this.yt.ready) return;
+    const dur = this.yt.getDuration() || this.yt.duration;
+    if (!dur) {
+      document.getElementById('yt-hint').textContent = 'YouTube не отдал длительность. Попробуй ещё раз.';
+      return;
+    }
+    // Start from ~18% into the track (past most intros), never past the end
+    const from = Math.min(Math.max(12, dur * 0.18), Math.max(0, dur - 28));
+    this.calib = { taps: [], startedAt: performance.now(), lastTapPerf: 0, windowSec: 24 };
+    document.getElementById('calib-box').style.display = 'block';
+    document.getElementById('calib-status').textContent = 'СЛУШАЙ И ТАКАЙ В БИТ!';
+    document.getElementById('calib-count').textContent = '0 / 10';
+    this.yt.seekPlay(from);
+  }
+
+  registerCalibTap() {
+    if (!this.calib || !this.yt) return;
+    this.calib.taps.push(this.yt.getTime());
+    this.calib.lastTapPerf = performance.now();
+    document.getElementById('calib-count').textContent = `${this.calib.taps.length} / 10`;
+    if (this.calib.taps.length >= 18) this.finishCalibration();
+  }
+
+  updateCalibration() {
+    if (!this.calib) return;
+    const c = this.calib;
+    const now = performance.now();
+    const elapsed = (now - c.startedAt) / 1000;
+    const sinceTap = (now - (c.lastTapPerf || c.startedAt)) / 1000;
+    if ((c.taps.length >= 10 && sinceTap > 1.5) || elapsed > c.windowSec) {
+      this.finishCalibration();
+    }
+  }
+
+  finishCalibration() {
+    const c = this.calib;
+    if (!c) return;
+    this.calib = null;
+    this.yt.pause();
+    const statusEl = document.getElementById('calib-status');
+    const fail = (msg) => {
+      statusEl.textContent = msg;
+      document.getElementById('calib-box').style.display = 'block';
+      document.getElementById('btn-calib-retry').style.display = 'inline-block';
+    };
+    const taps = c.taps;
+    if (taps.length < 6) {
+      fail('Слишком мало тапов. Нажми «ЕЩЁ РАЗ» и стучи в ритм бочки (пробел).');
+      return;
+    }
+    const deltas = [];
+    for (let i = 1; i < taps.length; i++) {
+      const d = taps[i] - taps[i - 1];
+      if (d > 0.22 && d < 2.2) deltas.push(d);
+    }
+    if (deltas.length < 4) {
+      fail('Не услышал ровный ритм. «ЕЩЁ РАЗ» — и стучите ровнее.');
+      return;
+    }
+    deltas.sort((a, b) => a - b);
+    const median = deltas[Math.floor(deltas.length * 0.5)];
+    let bpm = 60 / median;
+    while (bpm < 70) bpm *= 2;
+    while (bpm > 180) bpm /= 2;
+    const interval = 60 / bpm;
+    // Confidence: how many inter-tap intervals land on the folded beat
+    let close = 0;
+    for (const d of deltas) {
+      let dd = d;
+      while (dd > interval * 1.6) dd /= 2;
+      while (dd < interval * 0.4) dd *= 2;
+      if (Math.abs(dd - interval) < interval * 0.14) close++;
+    }
+    const conf = close / deltas.length;
+    // Phase: circular mean of tap positions on the beat circle (wrap-safe)
+    let sx = 0;
+    let sy = 0;
+    for (const t of taps) {
+      const ph = 2 * Math.PI * (((t % interval) + interval) % interval) / interval;
+      sx += Math.cos(ph);
+      sy += Math.sin(ph);
+    }
+    let phase = Math.atan2(sy / taps.length, sx / taps.length) * interval / (2 * Math.PI);
+    if (phase < 0) phase += interval;
+    const duration = this.yt.getDuration() || this.yt.duration;
+    this.audio.attachYouTube(this.yt, duration);
+    this.audio.applySyntheticTrack(bpm, phase, duration);
+    this.bpmCoinMult = this.store.getBpmCoinMultiplier(this.audio.bpm);
+    this.world.setBPM(this.audio.bpm, this.audio.obstacleKicks, this.audio.coinKicks);
+    document.getElementById('menu-bpm-val').textContent = `${Math.round(this.audio.bpm * 10) / 10}`;
+    document.getElementById('menu-track-len').textContent =
+      `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, '0')}`;
+    document.getElementById('menu-track-kicks').textContent = `${this.audio.kickMap.length}`;
+    document.getElementById('track-card').style.display = 'block';
+    document.getElementById('calib-box').style.display = 'none';
+    document.getElementById('btn-calib-retry').style.display = 'inline-block';
+    document.getElementById('yt-hint').textContent = conf >= 0.55
+      ? 'Ритм пойман! Если препятствия не в такт — жми «ЕЩЁ РАЗ».'
+      : 'Ритм пойман, но неуверенно — советую «ЕЩЁ РАЗ».';
+    this.ytReady = true;
+    this.refreshYtStartButton();
+    if (this.mp.active && this.mp.isHost && this.net.conn && this.net.conn.open) {
+      this.sendYtTrackToGuest();
+    }
+  }
+
+  sendYtTrackToGuest() {
+    if (!this.net.conn || !this.net.conn.open || !this.yt) return;
+    this.net.send({
+      t: 'yt_track',
+      videoId: this.yt.videoId,
+      title: this.yt.title || '',
+      duration: this.audio.getDuration(),
+      bpm: this.audio.bpm,
+      kickMap: this.audio.kickMap,
+      obstacleKicks: this.audio.obstacleKicks,
+      coinKicks: this.audio.coinKicks
+    });
+    this.mp.hostTrackSent = true;
+    if (this.mp.guestReady) {
+      this.setMpHint('Трек передан. Запускай матч кнопкой ниже!');
+    } else {
+      this.setMpHint('YouTube-трек передан напарнику. Ждём его готовность...');
+    }
+  }
+
+  async handleGuestYtTrack(m) {
+    try {
+      this.setMpHint('Хост выбрал YouTube-трек. Загружаю...');
+      if (this.yt) this.yt.destroy();
+      this.yt = new YouTubeTrack();
+      const meta = await this.yt.load(m.videoId);
+      this.yt.setVolume(parseInt(document.getElementById('volume-slider').value, 10) || 75);
+      this.audio.attachYouTube(this.yt, m.duration || meta.duration);
+      this.audio.applyAnalysis({
+        bpm: m.bpm || 120,
+        kickMap: m.kickMap || [],
+        obstacleKicks: m.obstacleKicks || [],
+        coinKicks: m.coinKicks || []
+      });
+      this.bpmCoinMult = this.store.getBpmCoinMultiplier(this.audio.bpm);
+      document.getElementById('track-name').textContent = m.title || 'YouTube-трек';
+      document.getElementById('bpm-val').textContent = `${Math.round(this.audio.bpm * 10) / 10}`;
+      document.getElementById('bpm-mult-val').textContent = `x${this.bpmCoinMult}`;
+      this.world.setBPM(this.audio.bpm, this.audio.obstacleKicks, this.audio.coinKicks);
+      this.mp.ready = true;
+      this.net.send({ t: 'guest_ready' });
+      this.setMpHint('Трек с YouTube готов! Ждём старт от хоста...');
+      this.hideMpProgress();
+      if (this.mp.pendingStartMs > 0) {
+        const d = this.mp.pendingStartMs;
+        this.mp.pendingStartMs = 0;
+        this.beginCountdown(d);
+      }
+    } catch (e) {
+      this.setMpHint('Ошибка YouTube у гостя: ' + (e.message || 'не удалось открыть видео.'));
+    }
+  }
+
+  confirmYtStart() {
+    if (!this.ytReady) {
+      this.startYtLoad();
+      return;
+    }
+    this.menuMusic.stop();
+    document.getElementById('start-modal').style.display = 'none';
+    document.getElementById('game-over').style.display = 'none';
+    document.getElementById('hud-panel').style.display = 'block';
+    document.getElementById('track-name').textContent = this.yt.title || 'YouTube-трек';
+    document.getElementById('bpm-val').textContent = `${Math.round(this.audio.bpm * 10) / 10}`;
+    document.getElementById('bpm-mult-val').textContent = `x${this.bpmCoinMult}`;
+    if (this.mp.active && this.mp.isHost) {
+      this.mp.hostLaunched = true;
+      if (this.mp.guestReady && !this.mp.hostCountdownStarted) {
+        this.mp.hostCountdownStarted = true;
+        this.setMpHint('Оба готовы! Запускаю отсчёт...');
+        this.net.sendStart(MP_START_DELAY);
+        this.beginCountdown(MP_START_DELAY);
+      } else {
+        this.setMpHint('Ждём готовность напарника, отсчёт стартует автоматически.');
+      }
+      return;
+    }
+    this.startRun();
+  }
+
+  // ---------------- VS duel panel (better17) ----------------
+
+  updateVsPanel() {
+    const panel = document.getElementById('vs-panel');
+    if (!panel) return;
+    const show = this.mp.active && this.isPlayingTrack && !this.isGameOver;
+    if (!show) {
+      if (panel.style.display !== 'none') panel.style.display = 'none';
+      return;
+    }
+    if (panel.style.display !== 'flex') panel.style.display = 'flex';
+    const my = Math.floor(this.world.score);
+    const p = this.mp.peer.s;
+    if (this._vsCache.my === my && this._vsCache.peer === p) return;
+    this._vsCache.my = my;
+    this._vsCache.peer = p;
+    document.getElementById('vs-my-score').textContent = my;
+    document.getElementById('vs-peer-score').textContent = p;
+    document.getElementById('vs-crown-my').style.visibility = my > p ? 'visible' : 'hidden';
+    document.getElementById('vs-crown-peer').style.visibility = p > my ? 'visible' : 'hidden';
+  }
+
   // ---------------- Pause overlay ----------------
 
   showPauseOverlay(text) {
@@ -387,7 +733,10 @@ class GameApp {
     this.net.on('peer', () => {
       this.setMpHint('Друг подключился!');
       // Host already picked a track before the guest arrived -> send it now
-      if (this.mp.active && this.mp.isHost && this.hostTrackBuf) {
+      if (this.mp.active && this.mp.isHost && this.trackSource === 'yt' && this.ytReady) {
+        this.setMpHint('Отправляю YouTube-трек другу...');
+        this.sendYtTrackToGuest();
+      } else if (this.mp.active && this.mp.isHost && this.hostTrackBuf) {
         this.setMpHint('Отправляю трек другу...');
         this.setMpProgress(0, this.hostTrackBuf.byteLength);
         this.net.sendTrack(this.hostTrackName, this.hostTrackBuf, this.hostTrackMap);
@@ -437,12 +786,26 @@ class GameApp {
     this.net.on('guest_ready', () => {
       if (this.mp.active && this.mp.isHost) {
         this.mp.guestReady = true;
-        if (this.mp.hostTrackSent && !this.mp.hostCountdownStarted) {
+        // File mode: launching = track fully sent. YouTube mode: the host
+        // launches the countdown manually via the big start button.
+        const launched = this.trackSource === 'yt' ? this.mp.hostLaunched : this.mp.hostTrackSent;
+        if (launched && !this.mp.hostCountdownStarted) {
           this.mp.hostCountdownStarted = true;
           this.setMpHint('Оба готовы! Запускаю отсчёт...');
           this.net.sendStart(MP_START_DELAY);
           this.beginCountdown(MP_START_DELAY);
+        } else if (this.trackSource === 'yt') {
+          this.setMpHint('Напарник готов! Жми кнопку запуска.');
         }
+      }
+    });
+    this.net.on('yt_track', (m) => this.handleGuestYtTrack(m));
+    this.net.on('yt_sync', (m) => {
+      // Guest drift correction against the host's YouTube clock
+      if (this.mp.active && !this.mp.isHost && this.yt && this.isPlayingTrack && this.pauseState === 'none') {
+        const local = this.audio.getElapsedTime();
+        const diff = (m.tt || 0) - local;
+        if (Math.abs(diff) > 0.35) this.yt.seekPlay(local + diff);
       }
     });
     this.net.on('start', (m) => {
@@ -479,6 +842,7 @@ class GameApp {
     });
     this.net.on('peer_state', (m) => {
       if (!this.mp.active) return;
+      const prevCombo = this.mp.peer.c;
       this.mp.peer.y = m.y;
       this.mp.peer.g = m.g;
       this.mp.peer.f = m.f;
@@ -489,6 +853,10 @@ class GameApp {
         this.mp.peer.st = 'play';
       }
       this.updatePeerHud();
+      // Duel flourish: ink ring at the ghost when the friend hits a combo milestone
+      if (this.isPlayingTrack && m.c > prevCombo && m.c > 0 && m.c % 5 === 0) {
+        this.particles.emitBeatRing(this.player.x + 20, this.mp.peer.y + 20);
+      }
     });
     this.net.on('peer_over', (m) => {
       if (!this.mp.active) return;
@@ -602,13 +970,29 @@ class GameApp {
   updateFinale(elapsed) {
     const dur = this.audio.getDuration();
     if (!dur || !this.isPlayingTrack || this.isGameOver) {
-      this.finale = 0;
-      document.getElementById('finale-banner').style.display = 'none';
+      if (this.blastT <= 0) {
+        this.finale = 0;
+        document.getElementById('finale-banner').style.display = 'none';
+      }
       return;
     }
     const len = Math.min(24, Math.max(9, dur * 0.14));
     const remain = dur - elapsed;
     this.finale = remain <= 0 ? 1 : (remain <= len ? 1 - remain / len : 0);
+
+    // better17 TRACK CLEAR: the exact end of the track triggers the grand
+    // blast (storm + shockwave volleys + score bonus), THEN the results show.
+    if (remain <= 0 && !this.blastStarted && this.pauseState === 'none') {
+      this.blastStarted = true;
+      this.blastT = 4.4;
+      this.blastVolley = 0;
+      this.world.score += 500; // clear bonus
+      const b = document.getElementById('finale-banner');
+      b.textContent = '\u2694 TRACK CLEAR \u2014 МОНЕТЫ \u00d72 \u2694';
+      b.style.display = 'block';
+      this.particles.emitFinaleStorm(this.player.x + 20, this.player.y + 20, this.world.groundY, 1);
+      return;
+    }
 
     const banner = document.getElementById('finale-banner');
     if (this.finale > 0.02 && this.pauseState === 'none') {
@@ -670,6 +1054,7 @@ class GameApp {
       volLabel.textContent = `${val}%`;
       this.audio.setVolume(norm);
       this.menuMusic.setVolume(norm);
+      if (this.yt) this.yt.setVolume(parseInt(val, 10));
     };
 
     volSlider.addEventListener('input', (e) => updateVolume(e.target.value));
@@ -738,6 +1123,11 @@ class GameApp {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
         e.preventDefault();
+        // Tap-calibration capture has priority over the gameplay jump
+        if (this.calib) {
+          this.registerCalibTap();
+          return;
+        }
         jump();
       }
     });
@@ -940,7 +1330,7 @@ class GameApp {
 
     document.getElementById('btn-restart').addEventListener('click', (e) => {
       e.stopPropagation();
-      if (!this.audio.audioBuffer) return;
+      if (!this.audio.audioBuffer && !this.ytReady) return;
       if (this.mp.active) {
         if (this.mp.isHost) {
           this.riserPlayed = false;
@@ -962,6 +1352,8 @@ class GameApp {
       this.pauseState = 'none';
       this.finale = 0;
       this.riserPlayed = false;
+      this.blastStarted = false;
+      this.blastT = 0;
       this.hidePauseOverlay();
       if (this.mp.active) this.resetMpView();
       this.renderShopUI();
@@ -992,6 +1384,9 @@ class GameApp {
     this.runCoins = 0;
     this.finale = 0;
     this.riserPlayed = false;
+    this.blastStarted = false;
+    this.blastT = 0;
+    document.getElementById('finale-banner').textContent = '\u2694 ФИНАЛ \u2014 МОНЕТЫ \u00d72 \u2694';
     document.getElementById('combo-val').textContent = 'x0';
     document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+0)`;
     document.getElementById('game-over').style.display = 'none';
@@ -1021,21 +1416,27 @@ class GameApp {
     }
 
     this.audio.play(() => {
-      if (!this.isGameOver) {
-        this.isPlayingTrack = false;
-        this.stopRiser();
-        if (this.mp.active) {
-          document.getElementById('hud-panel').style.display = 'none';
-          this.showGameOver(true);
-          this.finishMpResult(true);
-        } else {
-          this.renderShopUI();
-          this.showGameOver(true);
-          document.getElementById('start-modal').style.display = 'none';
-          if (this.menuMusicEnabled) this.menuMusic.start(false);
-        }
-      }
+      // Track-end completion is handled by the TRACK CLEAR blast sequence in
+      // the main loop (updateFinale -> blast -> triggerTrackComplete).
     }, 0);
+  }
+
+  triggerTrackComplete() {
+    if (this.isGameOver || !this.isPlayingTrack) return;
+    this.isPlayingTrack = false;
+    this.stopRiser();
+    this.audio.stop();
+    document.getElementById('finale-banner').style.display = 'none';
+    if (this.mp.active) {
+      document.getElementById('hud-panel').style.display = 'none';
+      this.showGameOver(true);
+      this.finishMpResult(true);
+    } else {
+      this.renderShopUI();
+      this.showGameOver(true);
+      document.getElementById('start-modal').style.display = 'none';
+      if (this.menuMusicEnabled) this.menuMusic.start(false);
+    }
   }
 
   triggerGameOver() {
@@ -1078,6 +1479,24 @@ class GameApp {
     this.beatPulse = Math.max(0, this.beatPulse - dt * 4.8);
 
     this.updateFinale(elapsed);
+    this.updateCalibration();
+    this.updateVsPanel();
+
+    // better17: shockwave volleys during the TRACK CLEAR blast
+    if (this.blastT > 0) {
+      this.blastT -= dt;
+      this.blastVolley -= dt;
+      if (this.blastVolley <= 0) {
+        this.blastVolley = 0.34;
+        this.particles.emitKickShock(
+          this.player.x + 20,
+          this.player.y + 20,
+          this.world.groundY,
+          1.35
+        );
+      }
+      if (this.blastT <= 0) this.triggerTrackComplete();
+    }
 
     const frozen = this.pauseState !== 'none' || document.hidden;
     if (this.isPlayingTrack && !this.isGameOver && !frozen) {
@@ -1091,7 +1510,7 @@ class GameApp {
         this.particles.emitJudgment(`+${val} МОНЕТ`, coin.x, coin.y - 10, 'PERFECT');
       });
       this.particles.update(dt);
-      if (hit) {
+      if (hit && this.blastT <= 0) {
         this.triggerGameOver();
       }
     } else {
@@ -1116,6 +1535,11 @@ class GameApp {
         this.runCoins,
         'play'
       );
+      // YouTube host: broadcast the reference clock for guest drift correction
+      if (this.trackSource === 'yt' && this.mp.isHost && timeSeconds - (this.mp.lastSync || 0) > 2) {
+        this.mp.lastSync = timeSeconds;
+        this.net.send({ t: 'yt_sync', tt: this.audio.getElapsedTime() });
+      }
     }
 
     document.getElementById('score-val').textContent = Math.floor(this.world.score);
@@ -1131,7 +1555,7 @@ class GameApp {
 
     this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale);
     if (this.mp.active && this.mp.peer.st === 'play' && this.isPlayingTrack) {
-      this.player.renderGhost(this.sceneCtx, this.mp.peer.y, this.mp.peer.f);
+      this.player.renderGhost(this.sceneCtx, this.mp.peer.y, this.mp.peer.f, this.mp.peer.c);
     }
     this.player.render(this.sceneCtx, this.beatPhase, this.isPlayingTrack && !this.isGameOver, this.world.groundY, this.beatPulse);
     this.particles.render(this.sceneCtx);

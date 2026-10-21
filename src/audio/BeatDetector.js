@@ -24,6 +24,11 @@ export class BeatDetector {
     this.coinKicks = [];     // Kick timestamps for coins
     this.lastTriggeredKickIndex = -1;
 
+    // YouTube mode (better17): an external clock provider replaces the
+    // AudioBufferSourceNode. Beat timings come from the calibrated grid.
+    this.yt = null;
+    this.ytDuration = 0;
+
     this.prevSubRms = 0;
     this.subHistory = [];
     this.historySize = 25;
@@ -149,6 +154,42 @@ export class BeatDetector {
     this.obstacleKicks = analysis.obstacleKicks;
     this.coinKicks = analysis.coinKicks;
     this.isLoaded = true;
+  }
+
+  /**
+   * YouTube mode: delegate playback/clock to the IFrame player wrapper.
+   * The kick grid must already be installed via applyAnalysis()/buildKicksFromBpm.
+   */
+  attachYouTube(yt, durationSec) {
+    this.yt = yt;
+    this.ytDuration = durationSec || 0;
+  }
+
+  detachYouTube() {
+    this.yt = null;
+    this.ytDuration = 0;
+  }
+
+  /**
+   * Tap-calibration path (YouTube): synthesize a verified kick grid from a
+   * calibrated BPM + phase. Grid starts after the musical intro window so the
+   * gameplay timeline begins cleanly.
+   */
+  buildKicksFromBpm(bpm, phaseSec, durationSec) {
+    const interval = 60 / Math.max(40, Math.min(240, bpm));
+    const kicks = [];
+    let t = ((phaseSec % interval) + interval) % interval;
+    while (t < 1.15) t += interval; // keep the 1.1s warm-up window clean
+    for (; t < durationSec - 0.3; t += interval) {
+      kicks.push(Math.round(t * 1000) / 1000);
+    }
+    return kicks;
+  }
+
+  applySyntheticTrack(bpm, phaseSec, durationSec) {
+    const kicks = this.buildKicksFromBpm(bpm, phaseSec, durationSec);
+    this.applyAnalysis({ bpm, kickMap: kicks, ...this.buildGameplayTimelines(kicks, durationSec) });
+    return this.bpm;
   }
 
   /**
@@ -476,6 +517,15 @@ export class BeatDetector {
   }
 
   play(onEnded, offset = 0) {
+    if (this.yt) {
+      this.stop(false);
+      this.onEndedCallback = onEnded || this.onEndedCallback;
+      this.pauseOffset = offset;
+      this.yt.seekPlay(offset);
+      this.isPlaying = true;
+      this.isPaused = false;
+      return;
+    }
     if (!this.audioBuffer || !this.ctx) return;
     this.stop(false);
     this.onEndedCallback = onEnded || this.onEndedCallback;
@@ -499,6 +549,13 @@ export class BeatDetector {
   }
 
   pause() {
+    if (this.yt) {
+      if (!this.isPlaying || this.isPaused) return;
+      this.pauseOffset = this.getElapsedTime();
+      this.isPaused = true;
+      this.yt.pause();
+      return;
+    }
     if (!this.isPlaying || this.isPaused) return;
     this.pauseOffset = this.getElapsedTime();
     this.isPaused = true;
@@ -513,6 +570,12 @@ export class BeatDetector {
   }
 
   resume() {
+    if (this.yt) {
+      if (!this.isPaused) return;
+      this.isPaused = false;
+      this.yt.play();
+      return;
+    }
     if (!this.isPaused || !this.audioBuffer) return;
     this.play(this.onEndedCallback, this.pauseOffset);
   }
@@ -523,6 +586,10 @@ export class BeatDetector {
     if (resetOffset) {
       this.pauseOffset = 0;
       this.lastTriggeredKickIndex = -1;
+    }
+    if (this.yt) {
+      this.yt.stop();
+      return;
     }
     if (this.source) {
       this.source.onended = null;
@@ -535,10 +602,16 @@ export class BeatDetector {
   }
 
   getDuration() {
+    if (this.yt) return this.ytDuration || this.yt.getDuration() || 0;
     return this.audioBuffer ? this.audioBuffer.duration : 0;
   }
 
   getElapsedTime() {
+    if (this.yt) {
+      if (this.isPaused) return this.pauseOffset;
+      if (!this.isPlaying) return 0;
+      return Math.max(0, this.yt.getTime());
+    }
     if (!this.ctx) return 0;
     if (this.isPaused) return this.pauseOffset;
     if (!this.isPlaying) return 0;
@@ -569,7 +642,33 @@ export class BeatDetector {
   }
 
   update() {
-    if (!this.isPlaying || this.isPaused || !this.kickAnalyser || !this.midAnalyser) return false;
+    if (!this.isPlaying || this.isPaused) return false;
+
+    // YouTube mode: no realtime analysers — derive the visual kick energy
+    // from the calibrated grid itself (spike right after each grid hit).
+    if (this.yt) {
+      const trackTime = this.getElapsedTime();
+      let triggeredKick = false;
+      for (let i = this.lastTriggeredKickIndex + 1; i < this.kickMap.length; i++) {
+        if (trackTime >= this.kickMap[i] - 0.008) {
+          if (trackTime - this.kickMap[i] < 0.09) triggeredKick = true;
+          this.lastTriggeredKickIndex = i;
+        } else {
+          break;
+        }
+      }
+      // Envelope: 1.0 at the hit, linear-ish decay over 0.16s
+      const idx = Math.max(0, this.lastTriggeredKickIndex);
+      if (idx < this.kickMap.length) {
+        const since = trackTime - this.kickMap[idx];
+        const env = Math.max(0, 1 - since / 0.16);
+        this.kickIntensity = Math.max(env, this.kickIntensity * 0.82);
+      }
+      this.prevSubRms = this.kickIntensity;
+      return triggeredKick;
+    }
+
+    if (!this.kickAnalyser || !this.midAnalyser) return false;
 
     const trackTime = this.getElapsedTime();
     this.kickAnalyser.getFloatTimeDomainData(this.subBuf);

@@ -8,6 +8,7 @@
 </head>
 <body data-theme="ink">
   <input type="file" id="audio-input" accept="audio/*" style="display: none;" />
+  <div id="yt-holder" aria-hidden="true"></div>
 
   <div id="canvas-container">
     <canvas id="gl-canvas"></canvas>
@@ -54,20 +55,70 @@
         </div>
       </div>
 
-      <div class="section-label">МАГАЗИН ОБЛИКОВ (СКИНЫ)</div>
-      <div class="skin-grid" id="skin-selector"></div>
+      <!-- better17: tabbed menu -->
+      <div class="menu-tabs">
+        <button id="btn-tab-track" class="tab-btn">ТРЕК</button>
+        <button id="btn-tab-hero" class="tab-btn">ГЕРОЙ</button>
+        <button id="btn-tab-items" class="tab-btn">РЕЛИКВИИ</button>
+        <button id="btn-tab-styles" class="tab-btn">СТИЛИ</button>
+      </div>
 
-      <div class="section-label">ВИЗУАЛЬНЫЕ РЕЛИКВИИ (ПРЕДМЕТЫ)</div>
-      <div class="item-grid" id="item-selector"></div>
+      <div id="tab-track" class="tab-panel">
+        <div class="src-row">
+          <button id="btn-src-file" class="sketch-btn active">ФАЙЛ</button>
+          <button id="btn-src-yt" class="sketch-btn">YOUTUBE / YT MUSIC</button>
+        </div>
 
-      <div class="volume-box">
-        <span>ГРОМКОСТЬ</span>
-        <input type="range" id="volume-slider" min="0" max="100" value="75" />
-        <span id="volume-label" style="min-width: 38px;">75%</span>
+        <div id="track-file-box">
+          <div class="mp-hint" style="margin: 6px 0;">Локальный аудиофайл: точный DSP-анализ бочки, всё оффлайн.</div>
+        </div>
+
+        <div id="track-yt-box" style="display: none;">
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="yt-url" class="yt-input" placeholder="Вставь ссылку YouTube / YT Music..." />
+            <button id="btn-yt-load" class="sketch-btn">LOAD</button>
+          </div>
+          <div id="yt-hint" class="mp-hint" style="margin-top: 6px;">Трек играет прямо с YouTube — без скачивания.</div>
+
+          <div id="calib-box" style="display: none;" class="calib-box">
+            <div id="calib-status" class="calib-status">СЛУШАЙ И ТАКАЙ В БИТ!</div>
+            <div id="calib-count" class="calib-count">0 / 10</div>
+            <button id="calib-tap-zone" class="tap-zone">ТАЙ!</button>
+            <div class="mp-hint" style="margin-top: 4px;">пробел тоже работает</div>
+          </div>
+
+          <div id="track-card" style="display: none;" class="track-card">
+            <b id="menu-track-name">-</b>
+            <div class="track-card-row">
+              <span>BPM: <b id="menu-bpm-val">-</b></span>
+              <span>ДЛИНА: <b id="menu-track-len">-</b></span>
+              <span>БИТОВ: <b id="menu-track-kicks">-</b></span>
+            </div>
+            <button id="btn-calib-retry" class="sketch-btn" style="display: none; font-size: 11px; padding: 5px 12px; margin-top: 4px;">ЕЩЁ РАЗ (перекалибровать)</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-hero" class="tab-panel" style="display: none;">
+        <div class="section-label">МАГАЗИН ОБЛИКОВ (СКИНЫ)</div>
+        <div class="skin-grid" id="skin-selector"></div>
+      </div>
+
+      <div id="tab-items" class="tab-panel" style="display: none;">
+        <div class="section-label">ВИЗУАЛЬНЫЕ РЕЛИКВИИ (ПРЕДМЕТЫ)</div>
+        <div class="item-grid" id="item-selector"></div>
+      </div>
+
+      <div id="tab-styles" class="tab-panel" style="display: none;">
+        <div class="section-label">ВИЗУАЛЬНЫЙ СТИЛЬ ВСЕЙ ИГРЫ</div>
+        <div id="theme-grid"></div>
       </div>
 
       <div id="guest-wait" class="mp-hint" style="display: none; text-align: center; padding: 6px 0;">ЖДЁМ ТРЕК ОТ ХОСТА...</div>
+
       <button id="btn-select-file" class="sketch-btn pulse-ring" style="font-size: 15px; width: 100%; margin-top: 6px;">ЗАГРУЗИТЬ ТРЕК И ИГРАТЬ</button>
+      <button id="btn-yt-start" class="sketch-btn pulse-ring" style="display: none; font-size: 15px; width: 100%; margin-top: 6px;">ВСТАВЬ ССЫЛКУ И ЗАГРУЗИ</button>
+
       <div style="margin-top: 8px;">
         <button id="btn-toggle-menu-music" class="sketch-btn" style="font-size: 11px; padding: 5px 14px;">МЕЛОДИЯ МЕНЮ: ВКЛ</button>
       </div>
@@ -75,9 +126,6 @@
 
     <div class="panel" id="settings-panel" style="display: none;">
       <div class="title">НАСТРОЙКИ</div>
-
-      <div class="section-label">ВИЗУАЛЬНЫЙ СТИЛЬ ВСЕЙ ИГРЫ</div>
-      <div id="theme-grid"></div>
 
       <div class="section-label">ЭФФЕКТЫ</div>
       <div class="settings-row">
@@ -89,6 +137,12 @@
       <div class="settings-row">
         <span>ТРЯСКА ЭКРАНА:</span>
         <button id="btn-toggle-shake" class="sketch-btn">ВКЛ</button>
+      </div>
+
+      <div class="volume-box">
+        <span>ГРОМКОСТЬ</span>
+        <input type="range" id="volume-slider" min="0" max="100" value="75" />
+        <span id="volume-label" style="min-width: 38px;">75%</span>
       </div>
 
       <button id="btn-close-settings" class="sketch-btn" style="width: 100%; margin-top: 10px;">ЗАКРЫТЬ</button>
@@ -107,6 +161,21 @@
         <input type="range" id="hud-volume-slider" min="0" max="100" value="75" style="width: 90px;" />
         <span style="font-size: 11px; margin-left: 6px;">СЧЕТ: <b id="score-val">0</b></span>
         <button id="btn-hud-menu" class="sketch-btn" style="padding: 3px 10px; font-size: 11px; margin-left: auto;">МЕНЮ</button>
+      </div>
+    </div>
+
+    <!-- better17: duel VS strip -->
+    <div id="vs-panel" style="display: none;">
+      <div class="vs-side">
+        <span id="vs-crown-my" class="vs-crown">&#9819;</span>
+        <b id="vs-my-score">0</b>
+        <span class="vs-label">ТЫ</span>
+      </div>
+      <div class="vs-divider">VS</div>
+      <div class="vs-side">
+        <span id="vs-crown-peer" class="vs-crown">&#9819;</span>
+        <b id="vs-peer-score">0</b>
+        <span class="vs-label">ДРУГ</span>
       </div>
     </div>
 

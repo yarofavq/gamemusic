@@ -26,7 +26,13 @@ export class StoreManager {
       { id: 'mummy', name: 'Пробудившаяся Мумия', price: 5500, badge: 'VII' },
       { id: 'franken', name: 'Тварь Лаборатории', price: 7000, badge: 'VIII' },
       { id: 'frost_maiden', name: 'Ледяная Дева', price: 9000, badge: 'IX' },
-      { id: 'neon_ronin', name: 'Нео-Ронин', price: 12000, badge: 'X' }
+      { id: 'neon_ronin', name: 'Нео-Ронин', price: 12000, badge: 'X' },
+      { id: 'raven', name: 'Вестник Ворона', price: 15000, badge: 'XI' },
+      { id: 'doll', name: 'Фарфоровая Дева', price: 18500, badge: 'XII' },
+      { id: 'candle_monk', name: 'Монах Воскового Ордена', price: 22000, badge: 'XIII' },
+      { id: 'hellhound', name: 'Пёс Преисподней', price: 26000, badge: 'XIV' },
+      { id: 'plague', name: 'Чумной Доктор', price: 30000, badge: 'XV' },
+      { id: 'star_weaver', name: 'Ткач Звёзд', price: 35000, badge: 'XVI' }
     ];
 
     this.itemsCatalog = [
@@ -46,7 +52,17 @@ export class StoreManager {
     this.themesCatalog = [
       { id: 'ink', name: 'ЧЕРНИЛА', desc: 'Рукописная гравюра' },
       { id: 'neon', name: 'НЕОН', desc: 'Синтвейв-контур' },
-      { id: 'crystal', name: 'ВИТРАЖ', desc: 'Ледяная аврора' }
+      { id: 'crystal', name: 'ВИТРАЖ', desc: 'Ледяная аврора' },
+      { id: 'blood', name: 'КРОВЬ', desc: 'Алая мгла' },
+      { id: 'glacier', name: 'ЛЕДНИК', desc: 'Серебро севера' },
+      { id: 'toxic', name: 'ТОКСИН', desc: 'Кислотное свечение' },
+      { id: 'solar', name: 'ЗОЛОТО', desc: 'Закатная месса' },
+      { id: 'abyss', name: 'БЕЗДНА', desc: 'Затонувший собор' },
+      { id: 'ash', name: 'ПЕПЕЛ', desc: 'Ч/б нойр' },
+      { id: 'ember', name: 'УГЛИ', desc: 'Пылающий хор' },
+      { id: 'sakura', name: 'САКУРА', desc: 'Лепестки в ночи' },
+      { id: 'verdigris', name: 'ПАТИНА', desc: 'Медный крипт' },
+      { id: 'violet', name: 'ПОЛУНОЧЬ', desc: 'Лиловая аврора' }
     ];
 
     this.load();
