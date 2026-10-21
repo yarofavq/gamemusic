@@ -98,6 +98,10 @@ class GameApp {
     this.isPlayingTrack = false;
     this.menuMusicEnabled = true;
 
+    // better20: spectate camera (after death in a duel)
+    this.spectating = false;
+    this.cam = { zoom: 1.0, tz: 1.0 };
+
     // End-of-track finale state
     this.finale = 0;
     this.riserPlayed = false;
@@ -598,6 +602,7 @@ class GameApp {
       const res = document.getElementById('mp-result');
       res.textContent = 'ЖДЁМ РЕЗУЛЬТАТ ДРУГА...';
       res.style.display = 'block';
+      this.setSpectateStatus('ЖДЁМ РЕЗУЛЬТАТ ДРУГА...');
       return;
     }
     this.mp.resolved = true;
@@ -617,6 +622,13 @@ class GameApp {
       res.textContent = `НИЧЬЯ (${myScore})`;
     }
     res.style.display = 'block';
+    this.setSpectateStatus(res.textContent);
+  }
+
+  /** better20: mirror the duel result into the spectate bar. */
+  setSpectateStatus(text) {
+    const el = document.getElementById('spectate-status');
+    if (el) el.textContent = text || '';
   }
 
   // ---------------- YouTube source flow (better17) ----------------
@@ -632,6 +644,12 @@ class GameApp {
     }
     this.ytLoading = true;
     this.ytReady = false;
+    if (this.mp.active && this.mp.isHost) {
+      // better20 replay guard (same as the file path)
+      this.mp.guestReady = false;
+      this.mp.hostCountdownStarted = false;
+      this.mp.hostTrackSent = false;
+    }
     hint.textContent = 'Открываю видео...';
     this.menuMusic.stop();
     try {
@@ -905,7 +923,10 @@ class GameApp {
         this.mp.peer.st = 'left';
         this.updatePeerHud();
         this.setMpHint('Друг отключился.');
-        if (this.isPlayingTrack) {
+        if (this.spectating) {
+          // better20: nobody left to watch — back to the menu
+          this.fadeToMenu(false);
+        } else if (this.isPlayingTrack) {
           this.mp.active = false; // continue solo
           document.getElementById('peer-panel').style.display = 'none';
         } else {
@@ -1268,7 +1289,7 @@ class GameApp {
           const coinsEarned = Math.max(1, Math.round((baseCoin + comboBonus) * this.bpmCoinMult * finaleBonus));
           this.runCoins += coinsEarned;
           this.store.addCoins(coinsEarned);
-  ___SKIP___
+          this.dom.coins.textContent = `${this.store.data.coins} (+${this.runCoins})`;
         }
 
         this.particles.emitJudgment(
@@ -1312,6 +1333,35 @@ class GameApp {
       }
       jump();
     });
+
+    // better20: spectate zoom — mouse wheel while watching your friend
+    window.addEventListener('wheel', (e) => {
+      if (!this.spectating) return;
+      e.preventDefault();
+      this.spectateZoom(e.deltaY < 0 ? 0.18 : -0.18);
+    }, { passive: false });
+
+    const wireZoomBtn = (id, delta) => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      // pointerdown only — click would fire on top of it and double the step
+      btn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        this.spectateZoom(delta);
+      });
+    };
+    wireZoomBtn('spec-zoom-in', 0.25);
+    wireZoomBtn('spec-zoom-out', -0.25);
+
+    // better20: explicit room leave (the МЕНЮ button keeps the room alive)
+    const leaveBtn = document.getElementById('btn-leave-room');
+    if (leaveBtn) {
+      leaveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.leaveRoom();
+      });
+    }
 
     // ---- Modes, settings, collapsible title ----
     const btnSoloMode = document.getElementById('btn-solo-mode');
@@ -1458,6 +1508,11 @@ class GameApp {
       document.getElementById('track-name').textContent = file.name;
 
       if (this.mp.active && this.mp.isHost) {
+        // better20 replay guard: a fresh track invalidates the previous
+        // readiness so the match can't double-start
+        this.mp.guestReady = false;
+        this.mp.hostCountdownStarted = false;
+        this.mp.hostTrackSent = false;
         document.getElementById('bpm-val').textContent = 'Чтение файла...';
         try {
           const buf = await file.arrayBuffer();
@@ -1549,6 +1604,10 @@ class GameApp {
     document.getElementById('hud-panel').style.display = 'block';
     this.isGameOver = false;
     this.isPlayingTrack = true;
+    this.spectating = false;
+    this.cam.zoom = 1.0;
+    this.cam.tz = 1.0;
+    this.hideSpectateBar();
     this.combo = 0;
     this.maxCombo = 0;
     this.runCoins = 0;
@@ -1595,18 +1654,22 @@ class GameApp {
   }
 
   triggerTrackComplete() {
-    if (this.isGameOver || !this.isPlayingTrack) return;
+    if (this.isGameOver && !this.spectating) return;
+    if (!this.isPlayingTrack) return;
     this.isPlayingTrack = false;
+    this.spectating = false;
+    this.hideSpectateBar();
     this.stopRiser();
     this.audio.stop();
     document.getElementById('finale-banner').style.display = 'none';
-    if (this.mp.active) {
+    if (this.mp.active && !this.isGameOver) {
       document.getElementById('hud-panel').style.display = 'none';
       this.showGameOver(true);
       this.finishMpResult(true);
     } else {
       // better19: конец трека больше НЕ показывает экран проигрыша —
       // плавный авто-возврат в меню с тостом о добытых монетах
+      // (better20: и для спектейтора — комната остаётся жить)
       const earned = this.runCoins;
       this.fadeToMenu(true, earned);
     }
@@ -1639,13 +1702,17 @@ class GameApp {
     this.audio.stop();
     this.isPlayingTrack = false;
     this.isGameOver = false;
+    this.spectating = false;
     this.pauseState = 'none';
     this.finale = 0;
     this.riserPlayed = false;
     this.blastStarted = false;
     this.blastT = 0;
     this.hidePauseOverlay();
-    if (this.mp.active) this.resetMpView();
+    this.hideSpectateBar();
+    // better20: going back to the menu NO LONGER kills the room — the friend
+    // stays connected and a new match can start right away.
+    if (this.mp.active) this.keepRoomOnMenuReturn();
     this.renderShopUI();
     document.getElementById('game-over').style.display = 'none';
     document.getElementById('hud-panel').style.display = 'none';
@@ -1660,6 +1727,51 @@ class GameApp {
     }
   }
 
+  /**
+   * better20: keep the P2P room alive after a finished/lost match and reset
+   * only the per-match state. The host immediately sees "load a track" UI,
+   * the guest sees the waiting panel — a rematch is one track away.
+   */
+  keepRoomOnMenuReturn() {
+    this.mp.ready = false;
+    this.mp.pendingStartMs = 0;
+    this.mp.hostTrackSent = false;
+    this.mp.guestReady = false;
+    this.mp.hostCountdownStarted = false;
+    this.mp.hostLaunched = false;
+    this.mp.overSent = false;
+    this.mp.resolved = false;
+    this.mp.iFinished = false;
+    this.mp.peer = { y: this.world.groundY - 54, g: true, f: false, s: 0, c: 0, co: 0, st: 'wait' };
+    this._vsCache = { my: -1, peer: -1 };
+
+    document.getElementById('mp-lobby').style.display = 'none';
+    document.getElementById('mp-status').style.display = 'block';
+    document.getElementById('mp-code-label').textContent = `КОМНАТА АКТИВНА: ${this.mp.code}`;
+    document.getElementById('peer-panel').style.display = 'none';
+    document.getElementById('guest-wait').style.display = 'none';
+    const res = document.getElementById('mp-result');
+    res.style.display = 'none';
+    res.textContent = '';
+    this.hideMpProgress();
+    this.updatePeerHud();
+    if (this.mp.isHost) {
+      this.refreshSourceUI();
+      this.setMpHint('Комната жива! Загрузи новый трек — матч перезапустится автоматически.');
+    } else {
+      document.getElementById('btn-select-file').style.display = 'none';
+      document.getElementById('btn-yt-start').style.display = 'none';
+      document.getElementById('guest-wait').style.display = 'block';
+      this.setMpHint('Комната жива! Ждём новый трек от хоста...');
+    }
+  }
+
+  /** better20: explicit leave — closes the peer connection (destructive). */
+  leaveRoom() {
+    this.resetMpView();
+    this.setMpHint('Ты покинул комнату.');
+  }
+
   /** better19: floating "TRACK CLEARED / +coins" banner over the menu. */
   showMenuToast(text) {
     const t = document.getElementById('menu-toast');
@@ -1672,21 +1784,86 @@ class GameApp {
 
   triggerGameOver() {
     this.isGameOver = true;
-    this.isPlayingTrack = false;
     this.stopRiser();
+    document.getElementById('finale-banner').style.display = 'none';
+    if (this.mp.active && this.mp.peer.st !== 'dead' && this.mp.peer.st !== 'done' && this.mp.peer.st !== 'left') {
+      // better20 SPECTATE: in a duel the match goes on without you — keep the
+      // world scrolling + the music playing, hand the camera to your friend
+      // and let the wheel / + - buttons zoom in on his ghost.
+      this.spectating = true;
+      this.cam.tz = 1.7;
+      this.cam.zoom = 1.0;
+      this.showSpectateBar();
+      this.finishMpResult(false);
+      return;
+    }
+    this.isPlayingTrack = false;
     this.audio.stop();
     this.renderShopUI();
     this.showGameOver(false);
-    document.getElementById('finale-banner').style.display = 'none';
     if (this.mp.active) {
       this.mp.peer.st = this.mp.peer.st === 'play' ? 'play' : this.mp.peer.st;
       this.finishMpResult(false);
     }
   }
 
+  // ---------------- better20: spectate camera ----------------
+
+  showSpectateBar() {
+    const bar = document.getElementById('spectate-bar');
+    if (bar) bar.style.display = 'flex';
+  }
+
+  hideSpectateBar() {
+    const bar = document.getElementById('spectate-bar');
+    if (bar) bar.style.display = 'none';
+  }
+
+  spectateZoom(delta) {
+    if (!this.spectating) return;
+    this.cam.tz = Math.max(1.0, Math.min(3.0, this.cam.tz + delta));
+  }
+
+  /**
+   * Applies the spectate camera transform to the 2D scene context.
+   * Zooms around the friend's ghost (same lane x, y follows his jumps).
+   * Pass a truthy dt ONLY on the first call of the frame (smooth zoom);
+   * subsequent calls in the same frame pass 0 so the zoom isn't double-lerped.
+   */
+  applySpectateCamera(ctx, dt = 0) {
+    const ghostY = this.mp.peer.y;
+    const focusX = VIRTUAL_WIDTH * 0.42;           // friend's lane, slightly left of center
+    const focusY = Math.max(180, Math.min(VIRTUAL_HEIGHT - 160, ghostY + 24));
+    if (dt) this.cam.zoom += (this.cam.tz - this.cam.zoom) * Math.min(1, dt * 5);
+    const z = this.cam.zoom;
+    ctx.translate(focusX * (1 - z), focusY * (1 - z));
+    ctx.scale(z, z);
+  }
+
   // ---------------- Main loop ----------------
 
   loop(timeMs) {
+    // better20 FIX: schedule the NEXT frame FIRST, before anything else can
+    // run. The old code called requestAnimationFrame at the very end, so the
+    // `return` in the TRACK CLEAR branch (and any runtime error) permanently
+    // killed the render chain — the menu still worked, music kept playing,
+    // but every new run was a frozen picture ("only music plays" bug).
+    requestAnimationFrame((t) => this.loop(t));
+
+    // better20 FIX: one broken frame must never freeze the whole game.
+    // Errors are throttled so a persistent problem can't spam the console.
+    try {
+      this.frame(timeMs);
+    } catch (err) {
+      const now = performance.now();
+      if (!this._lastLoopErrAt || now - this._lastLoopErrAt > 3000) {
+        this._lastLoopErrAt = now;
+        console.error('[NOCTURNE loop]', err);
+      }
+    }
+  }
+
+  frame(timeMs) {
     const timeSeconds = timeMs * 0.001;
     const rawDt = Math.min(timeSeconds - (this.lastTime || timeSeconds), 0.25);
     const dt = Math.min(rawDt, 0.04);
@@ -1783,7 +1960,9 @@ class GameApp {
     this.world.fever = this.combo >= 20 && this.isPlayingTrack && !this.isGameOver;
 
     const frozen = this.pauseState !== 'none' || document.hidden;
-    if (this.isPlayingTrack && !this.isGameOver && !frozen) {
+    // better20: a dead duel participant keeps SPECTATING — the world, the
+    // music and his friend's run go on (no scoring, no collisions for him).
+    if (this.isPlayingTrack && !frozen && (!this.isGameOver || this.spectating)) {
       this.player.update(dt);
       const finaleCoinBonus = this.finale > 0 ? 2 : 1;
       const hit = this.world.update(dt, this.player, elapsed, (coin) => {
@@ -1804,9 +1983,9 @@ class GameApp {
       }, (pl, power) => {
         // better19: landing dust puff scaled by impact speed
         this.particles.emitJumpDust(pl.x + pl.width / 2, pl.y + pl.height, Math.round(5 + power * 14), false);
-      });
+      }, this.spectating);
       this.particles.update(dt);
-      if (hit && this.blastT <= 0) {
+      if (hit && !this.spectating && this.blastT <= 0) {
         this.triggerGameOver();
       }
     } else {
@@ -1849,12 +2028,18 @@ class GameApp {
     const scaleY = this.sceneCanvas.height / VIRTUAL_HEIGHT;
     this.sceneCtx.scale(scaleX, scaleY);
 
+    // better20: the spectate camera zooms in on the friend's ghost
+    const spectating = this.spectating && this.mp.active;
+
+    this.sceneCtx.save();
+    if (spectating) this.applySpectateCamera(this.sceneCtx, dt);
     const mel = this.audio.getMelodyAt(elapsed);
     this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale, {
       t: elapsed,
       melody: mel.level,
       pitch: mel.pitch
     });
+    this.sceneCtx.restore();
 
     // Snare hit corner slash flash
     if (this.snareEnergy > 0.05) {
@@ -1885,7 +2070,7 @@ class GameApp {
     }
 
     // Top Track Progress Bar & Fever Banner
-    if (this.isPlayingTrack && !this.isGameOver) {
+    if (this.isPlayingTrack && (!this.isGameOver || this.spectating)) {
       const dur = Math.max(1, this.audio.getDuration() || 1);
       const prog = Math.max(0, Math.min(1, elapsed / dur));
       this.sceneCtx.save();
@@ -1902,10 +2087,24 @@ class GameApp {
       this.sceneCtx.restore();
     }
     if (this.mp.active && this.mp.peer.st === 'play' && this.isPlayingTrack) {
+      this.sceneCtx.save();
+      if (spectating) this.applySpectateCamera(this.sceneCtx, false);
       this.player.renderGhost(this.sceneCtx, this.mp.peer.y, this.mp.peer.f, this.mp.peer.c);
+      this.sceneCtx.restore();
     }
-    this.player.render(this.sceneCtx, this.beatPhase, this.isPlayingTrack && !this.isGameOver, this.world.groundY, this.beatPulse);
+    this.sceneCtx.save();
+    if (spectating) this.applySpectateCamera(this.sceneCtx, false);
+    if (this.spectating) {
+      // my fallen runner fades into the ink — the friend owns the stage now
+      this.sceneCtx.save();
+      this.sceneCtx.globalAlpha = 0.16;
+      this.player.render(this.sceneCtx, this.beatPhase, false, this.world.groundY, this.beatPulse);
+      this.sceneCtx.restore();
+    } else {
+      this.player.render(this.sceneCtx, this.beatPhase, this.isPlayingTrack && !this.isGameOver, this.world.groundY, this.beatPulse);
+    }
     this.particles.render(this.sceneCtx);
+    this.sceneCtx.restore();
     this.sceneCtx.restore();
 
     // 2. Upload to WebGL
@@ -1937,8 +2136,6 @@ class GameApp {
     gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    requestAnimationFrame((t) => this.loop(t));
   }
 }
 

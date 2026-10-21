@@ -57,3 +57,23 @@ stars 45/80/110, motes 10/18/26, bats 4/6/9, comets 1/2/3, pillars 14/22/32.
 Fever: combo≥20 → world.fever (край дороги crimson, магнит монет 50/54,
 порталы ×1.5). onLand-колбэк → пыль приземления. this.dom — кэш горячих
 DOM-ссылок (score/combo/coins/beat/banner/vs).
+
+## better20
+loop(): rAF-first + try/catch вокруг frame() — рендер-цепочка неубиваемая
+(старый `return` в ветке blastT убивал rAF навсегда = «только музыка играет»).
+Убран `___SKIP___` из jump-хендлера (ReferenceError на каждом зачётном прыжке).
+Комната: returnToMenuCore → keepRoomOnMenuReturn (mp-флаги матча в сброс,
+conn жив); btn-leave-room → leaveRoom() → resetMpView(); replay-guard —
+гостюReady/hostCountdownStarted/hostTrackSent сбрасываются при новой загрузке
+трека хостом (file+yt). Спектейт: triggerGameOver при mp.active → spectating=true,
+isPlayingTrack остаётся true (музыка+скролл живут), audio НЕ останавливается;
+frame() ветка `(!isGameOver || spectating)`, world.update(..., spectate) — без
+коллизий/монет/порталов/пассив-очков; камера cam{zoom,tz} 1.0..3.0, фокус на
+призраке (x=0.42W, y=peer.y), lerp dt*5, колесо (passive:false) и #spec-zoom-*
+кнопки; мой рендер альфа 0.16; результат дуэли дублируется в #spectate-status.
+peer_left при спектейте → fadeToMenu. triggerTrackComplete: guard
+`(isGameOver && !spectating)`; spectate → fadeToMenu (комната жива).
+Скоринг: World.update — пассив по track-clock (delta elapsed, cap 0.25с),
+_lastScoreT в конструкторе/reset. BeatDetector: _endClamp (onended → dur+0.05,
+play/stop → 0) — elapsed не снапается в 0 после конца буфера (мир не
+телепортируется во время blast).

@@ -29,6 +29,10 @@ export class BeatDetector {
     this.yt = null;
     this.ytDuration = 0;
 
+    // better20: after the buffer ends naturally, elapsed must stay clamped at
+    // the track length (blast phase) instead of snapping back to 0
+    this._endClamp = 0;
+
     // better18: melody map (lead-instrument energy + rough pitch, 20 Hz frames)
     // drives the breathing floor animation.
     this.melodyLevel = null;   // Float32Array 0..1
@@ -726,6 +730,7 @@ export class BeatDetector {
     this.stop(false);
     this.onEndedCallback = onEnded || this.onEndedCallback;
     this.pauseOffset = offset;
+    this._endClamp = 0;
 
     this.source = this.ctx.createBufferSource();
     this.source.buffer = this.audioBuffer;
@@ -734,6 +739,7 @@ export class BeatDetector {
     this.source.onended = () => {
       if (this.isPlaying && !this.isPaused) {
         this.isPlaying = false;
+        this._endClamp = (this.audioBuffer ? this.audioBuffer.duration : 0) + 0.05;
         if (this.onEndedCallback) this.onEndedCallback();
       }
     };
@@ -779,6 +785,7 @@ export class BeatDetector {
   stop(resetOffset = true) {
     this.isPlaying = false;
     this.isPaused = false;
+    this._endClamp = 0;
     if (resetOffset) {
       this.pauseOffset = 0;
       this.lastTriggeredKickIndex = -1;
@@ -810,8 +817,12 @@ export class BeatDetector {
     }
     if (!this.ctx) return 0;
     if (this.isPaused) return this.pauseOffset;
-    if (!this.isPlaying) return 0;
-    return Math.max(0, this.ctx.currentTime - this.startTime);
+    if (!this.isPlaying) return this._endClamp || 0;
+    // better20: clamp to the track length — after the buffer ends (blast phase)
+    // ctx.currentTime keeps running, which used to teleport the world back to t=0
+    const t = Math.max(0, this.ctx.currentTime - this.startTime);
+    const dur = this.audioBuffer ? this.audioBuffer.duration : 0;
+    return dur ? Math.min(t, dur + 0.05) : t;
   }
 
   getNearestKickDiff(currentTrackTime) {

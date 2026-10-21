@@ -52,6 +52,7 @@
           <div id="mp-progress" class="progress-outer" style="display: none;">
             <div id="mp-progress-fill" class="progress-fill"></div>
           </div>
+          <button id="btn-leave-room" class="sketch-btn" style="width: 100%; margin-top: 8px; font-size: 11px; padding: 6px 10px;">ПОКИНУТЬ КОМНАТУ</button>
         </div>
       </div>
 
@@ -210,6 +211,18 @@
     <div id="pause-overlay" style="display: none;">
       <div id="pause-icon">⏸</div>
       <div id="pause-text">ПАУЗА</div>
+    </div>
+
+    <!-- better20: spectate HUD — watching your friend after your own death -->
+    <div id="spectate-bar" style="display: none;">
+      <span class="spec-title">☠ НАБЛЮДЕНИЕ ЗА ДРУГОМ</span>
+      <span id="spectate-status"></span>
+      <div class="spec-zoom">
+        <button id="spec-zoom-out" class="spec-zoom-btn" title="Отдалить">−</button>
+        <span class="spec-zoom-label">ЗУМ</span>
+        <button id="spec-zoom-in" class="spec-zoom-btn" title="Приблизить">+</button>
+      </div>
+      <span class="spec-hint">КОЛЕСО МЫШИ — ЗУМ · МЕНЮ — ВЫЙТИ (КОМНАТА СОХРАНИТСЯ)</span>
     </div>
 
     <div id="game-over">

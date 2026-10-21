@@ -14,6 +14,7 @@ export class World {
     this.trees = [];
     this.bgGraves = [];
     this.score = 0;
+    this._lastScoreT = null;
     this.biomeStage = 0;
     this.shakeEnabled = true;
     this.glowEnabled = true;
@@ -312,13 +313,20 @@ export class World {
 
   reset(obstacleKicks = [], coinKicks = []) {
     this.score = 0;
+    this._lastScoreT = null;
     this.biomeStage = 0;
     this.buildTimeline(obstacleKicks, coinKicks);
   }
 
-  update(dt, player, trackElapsedTime, onCoinCollected, onPortal, onLand) {
+  update(dt, player, trackElapsedTime, onCoinCollected, onPortal, onLand, spectate = false) {
     this.scrollX += this.speed * dt;
-    this.score += dt * 16;
+    // better20: passive score follows the TRACK CLOCK, not the frame clock —
+    // a 30fps phone now earns exactly as much as a 144fps PC (MP fairness),
+    // and a dead spectator earns nothing.
+    if (this._lastScoreT === null || trackElapsedTime < this._lastScoreT - 0.05) this._lastScoreT = trackElapsedTime;
+    const scoreEd = Math.max(0, Math.min(0.25, trackElapsedTime - this._lastScoreT));
+    this._lastScoreT = trackElapsedTime;
+    if (!spectate) this.score += scoreEd * 16;
     this.biomeStage = trackElapsedTime / 18.0;
 
     for (const c of this.clouds) {
@@ -379,7 +387,7 @@ export class World {
         player.squash = 1.28;
         player.stretch = 0.78;
         // better19: landing dust puff scaled by impact speed
-        if (onLand && impact > 240) onLand(player, Math.min(1, impact / 900));
+        if (onLand && impact > 240 && !spectate) onLand(player, Math.min(1, impact / 900));
       }
     }
 
@@ -393,6 +401,7 @@ export class World {
       const timeDiff = coin.targetTime - trackElapsedTime;
       coin.x = playerAnchorX + timeDiff * this.speed;
 
+      if (spectate) continue; // better20: the fallen collect nothing
       // better19: fever widens the coin magnet
       const magX = this.fever ? 50 : 38;
       const magY = this.fever ? 54 : 42;
@@ -404,7 +413,7 @@ export class World {
 
     // better18: vertical portals — a guaranteed reward gate the runner passes
     // straight through (the ring is drawn behind the player)
-    if (onPortal) {
+    if (onPortal && !spectate) {
       for (const p of this.portals) {
         if (p.passed) continue;
         const diff = p.targetTime - trackElapsedTime;
@@ -426,6 +435,7 @@ export class World {
       const timeDiff = arrivalTime - trackElapsedTime;
       obs.x = playerAnchorX + timeDiff * this.speed - obs.w * 0.5;
 
+      if (spectate) continue; // better20: the fallen pass through everything
       if (obs.x > -120 && obs.x < this.width + 120) {
         if (
           player.x + pad < obs.x + obs.w - pad &&
