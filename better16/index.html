@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NOCTURNE RHYTHM</title>
+  <link rel="stylesheet" href="src/style.css" />
+</head>
+<body data-theme="ink">
+  <input type="file" id="audio-input" accept="audio/*" style="display: none;" />
+
+  <div id="canvas-container">
+    <canvas id="gl-canvas"></canvas>
+  </div>
+
+  <div id="ui-layer">
+    <div id="start-modal">
+      <button id="btn-title-toggle" title="Свернуть / развернуть заголовок">
+        <svg class="chev" width="22" height="22" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <div id="title-block">
+        <div class="ornament-line">✦ ─────────── ✦ ─────────── ✦</div>
+        <div class="modal-title">NOCTURNE RHYTHM</div>
+        <div class="modal-subtitle">GOTHIC INK EDITION</div>
+      </div>
+
+      <div class="wallet-bar">
+        <span>КАЗНА МОНЕТ: <b id="menu-coins-val">150</b></span>
+        <span style="font-size: 11px; color: var(--accent-dark);">ВЫШЕ BPM ТРЕКА = БОЛЬШЕ МОНЕТ</span>
+      </div>
+
+      <div class="mode-row">
+        <button id="btn-solo-mode" class="sketch-btn active">ОДИНОЧНАЯ ИГРА</button>
+        <button id="btn-mp-mode" class="sketch-btn">ИГРА С ДРУГОМ</button>
+        <button id="btn-open-settings" class="sketch-btn" title="Настройки">⚙</button>
+      </div>
+
+      <div id="mp-panel" style="display: none;">
+        <div id="mp-lobby">
+          <button id="btn-create-room" class="sketch-btn" style="width: 100%;">СОЗДАТЬ КОМНАТУ (ВЫ ХОСТ)</button>
+          <div class="mp-or">— или —</div>
+          <div style="display: flex; gap: 6px;">
+            <input type="text" id="room-code-input" maxlength="4" placeholder="КОД" class="room-input" />
+            <button id="btn-join-room" class="sketch-btn" style="flex: 1;">ВОЙТИ</button>
+          </div>
+        </div>
+        <div id="mp-status" style="display: none;">
+          <div id="mp-code-label" class="mp-code"></div>
+          <div id="mp-hint" class="mp-hint"></div>
+          <div id="mp-progress" class="progress-outer" style="display: none;">
+            <div id="mp-progress-fill" class="progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">МАГАЗИН ОБЛИКОВ (СКИНЫ)</div>
+      <div class="skin-grid" id="skin-selector"></div>
+
+      <div class="section-label">ВИЗУАЛЬНЫЕ РЕЛИКВИИ (ПРЕДМЕТЫ)</div>
+      <div class="item-grid" id="item-selector"></div>
+
+      <div class="volume-box">
+        <span>ГРОМКОСТЬ</span>
+        <input type="range" id="volume-slider" min="0" max="100" value="75" />
+        <span id="volume-label" style="min-width: 38px;">75%</span>
+      </div>
+
+      <div id="guest-wait" class="mp-hint" style="display: none; text-align: center; padding: 6px 0;">ЖДЁМ ТРЕК ОТ ХОСТА...</div>
+      <button id="btn-select-file" class="sketch-btn pulse-ring" style="font-size: 15px; width: 100%; margin-top: 6px;">ЗАГРУЗИТЬ ТРЕК И ИГРАТЬ</button>
+      <div style="margin-top: 8px;">
+        <button id="btn-toggle-menu-music" class="sketch-btn" style="font-size: 11px; padding: 5px 14px;">МЕЛОДИЯ МЕНЮ: ВКЛ</button>
+      </div>
+    </div>
+
+    <div class="panel" id="settings-panel" style="display: none;">
+      <div class="title">НАСТРОЙКИ</div>
+
+      <div class="section-label">ВИЗУАЛЬНЫЙ СТИЛЬ ВСЕЙ ИГРЫ</div>
+      <div id="theme-grid"></div>
+
+      <div class="section-label">ЭФФЕКТЫ</div>
+      <div class="settings-row">
+        <span>ЧАСТИЦЫ:</span>
+        <button class="sketch-btn quality-btn" data-q="low">НИЗ</button>
+        <button class="sketch-btn quality-btn" data-q="mid">СРЕД</button>
+        <button class="sketch-btn quality-btn" data-q="high">ВЫС</button>
+      </div>
+      <div class="settings-row">
+        <span>ТРЯСКА ЭКРАНА:</span>
+        <button id="btn-toggle-shake" class="sketch-btn">ВКЛ</button>
+      </div>
+
+      <button id="btn-close-settings" class="sketch-btn" style="width: 100%; margin-top: 10px;">ЗАКРЫТЬ</button>
+    </div>
+
+    <div class="panel" id="hud-panel" style="display: none;">
+      <div class="title">NOCTURNE RHYTHM</div>
+      <div id="track-name" style="font-size: 12px; font-weight: bold; word-break: break-all; margin-bottom: 6px;">-</div>
+      <div class="metrics">
+        <div class="metric-box">BPM: <b id="bpm-val">-</b> (<span id="bpm-mult-val">x1.0</span>)</div>
+        <div class="metric-box">МОНЕТЫ: <b id="hud-coins-val">0</b></div>
+        <div class="metric-box">СЕРИЯ: <b id="combo-val">x0</b></div>
+      </div>
+      <div class="volume-box" style="margin: 8px 0 0 0; padding: 5px 8px;">
+        <span style="font-size: 11px;">ЗВУК:</span>
+        <input type="range" id="hud-volume-slider" min="0" max="100" value="75" style="width: 90px;" />
+        <span style="font-size: 11px; margin-left: 6px;">СЧЕТ: <b id="score-val">0</b></span>
+        <button id="btn-hud-menu" class="sketch-btn" style="padding: 3px 10px; font-size: 11px; margin-left: auto;">МЕНЮ</button>
+      </div>
+    </div>
+
+    <div id="finale-banner" style="display: none;">⚔ ФИНАЛ — МОНЕТЫ ×2 ⚔</div>
+
+    <div id="beat-indicator" title="Импульс бочки">
+      <div class="beat-core"></div>
+    </div>
+
+    <div class="panel" id="peer-panel" style="display: none;">
+      <div class="title" id="peer-name">ДРУГ</div>
+      <div class="metrics">
+        <div class="metric-box">СЧЁТ: <b id="peer-score">0</b></div>
+        <div class="metric-box">СЕРИЯ: <b id="peer-combo">x0</b></div>
+        <div class="metric-box">СТАТУС: <b id="peer-status">—</b></div>
+      </div>
+    </div>
+
+    <div id="countdown" style="display: none;">
+      <div id="countdown-num">3</div>
+      <div class="modal-subtitle">ПРИГОТОВЬСЯ</div>
+    </div>
+
+    <div id="pause-overlay" style="display: none;">
+      <div id="pause-icon">⏸</div>
+      <div id="pause-text">ПАУЗА</div>
+    </div>
+
+    <div id="game-over">
+      <div class="ornament-line">✦ ───────── ✦ ───────── ✦</div>
+      <h2 class="modal-title" id="game-over-title">ЧЕРНИЛА ПРОЛИТЫ</h2>
+      <div id="final-rank" class="rank-badge">C</div>
+      <p style="margin-bottom: 6px; font-size: 15px;">Счёт: <b id="final-score">0</b> &nbsp;|&nbsp; Макс. серия: <b id="final-combo">x0</b></p>
+      <p style="margin-bottom: 16px; font-size: 14px; color: var(--accent-dark); font-weight: bold;">Добыто монет за забег: +<span id="final-coins">0</span></p>
+      <div id="mp-result" class="mp-result" style="display: none;"></div>
+      <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+        <button id="btn-restart" class="sketch-btn pulse-ring">ПОВТОРИТЬ ПАРТИЮ</button>
+        <button id="btn-back-menu" class="sketch-btn">МАГАЗИН / МЕНЮ</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
