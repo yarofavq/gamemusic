@@ -5,6 +5,21 @@
 
 const ROOM_PREFIX = 'noctrhy-b16-';
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ2456789';
+// Public ICE set: Google/Twilio STUN + free OpenRelay TURN. The room code is
+// resolved through the PeerJS cloud broker, so a friend can join from ANY
+// network/IP; TURN covers strict NATs (mobile data, corporate firewalls).
+const PEER_OPTS = {
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+    ]
+  }
+};
 // Track transfer goes as base64-in-JSON chunks: string payloads proved 100%
 // reliable over PeerJS's BinaryPack, raw ArrayBuffer bursts did not.
 const RAW_CHUNK = 6144;              // raw bytes per chunk -> ~8200 base64 chars (< 16KB pack MTU)
@@ -87,7 +102,7 @@ export class NetClient {
       if (!loaded) throw new Error('Не удалось загрузить модуль связи. Проверь интернет.');
     }
     return new Promise((resolve, reject) => {
-      this.peer = new Peer();
+      this.peer = new Peer(PEER_OPTS);
       const to = setTimeout(() => reject(new Error('Сервис комнат не отвечает.')), 15000);
       this.peer.on('open', () => {
         clearTimeout(to);
@@ -125,7 +140,7 @@ export class NetClient {
       const code = genCode();
       try {
         const peer = await new Promise((resolve, reject) => {
-          const p = new Peer(ROOM_PREFIX + code);
+          const p = new Peer(ROOM_PREFIX + code, PEER_OPTS);
           const to = setTimeout(() => reject(new Error('Сервис комнат не отвечает.')), 15000);
           p.on('open', () => { clearTimeout(to); resolve(p); });
           p.on('error', (err) => { clearTimeout(to); reject(err); });

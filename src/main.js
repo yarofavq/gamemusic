@@ -978,6 +978,13 @@ class GameApp {
   // ---------------- Run lifecycle ----------------
 
   startRun() {
+    // FIX: the guest starts from a network message, not a button click, so the
+    // menu/HUD switch must happen for BOTH sides right here (the host already
+    // closed its menu when picking a file — hiding again is harmless).
+    this.menuMusic.stop();
+    document.getElementById('start-modal').style.display = 'none';
+    document.getElementById('settings-panel').style.display = 'none';
+    document.getElementById('hud-panel').style.display = 'block';
     this.isGameOver = false;
     this.isPlayingTrack = true;
     this.combo = 0;
