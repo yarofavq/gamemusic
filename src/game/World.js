@@ -18,6 +18,23 @@ export class World {
     this.shakeEnabled = true;
     this.glowEnabled = true;
 
+    // better18: lyrics on the sky (LyricsTrack, set externally by main)
+    this.lyrics = null;
+    this.lyricsEnabled = true;
+    // better18: vertical reward portals placed between obstacles
+    this.portals = [];
+    // better18: detailed background layers
+    this.stars = [];
+    this.skyline = [];
+    this.motes = [];
+    this.bats = [];
+    this.batTimer = 5 + Math.random() * 5;
+    // better18: melody-driven floor state
+    this.melodyLevel = 0;
+    this.melodyPitch = 0.5;
+    this._skyGrad = null;
+    this._skyKey = '';
+
     // Jump Lead Time: when player jumps exactly on a kick, they reach peak clearance ~0.16s after jump takeoff.
     // Setting obstacle center arrival to kickTime + 0.16s means jumping ON the kick makes you soar cleanly over the obstacle!
     this.jumpLeadTime = 0.16;
@@ -58,6 +75,46 @@ export class World {
         w: 28,
         h: 36 + Math.random() * 18,
         tilt: (Math.random() - 0.5) * 0.18
+      });
+    }
+
+    // better18: twinkling star field (upper half of the sky)
+    this.stars = [];
+    for (let i = 0; i < 110; i++) {
+      this.stars.push({
+        x: Math.random() * this.width,
+        y: Math.random() * this.height * 0.5,
+        r: 0.5 + Math.random() * 1.6,
+        tw: Math.random() * Math.PI * 2,
+        sp: 0.8 + Math.random() * 2.4
+      });
+    }
+
+    // better18: gothic skyline silhouettes with lit windows (2x width, wraps)
+    this.skyline = [];
+    let sx = -40;
+    while (sx < this.width * 2 + 200) {
+      const bw = 60 + Math.random() * 95;
+      const bh = 70 + Math.random() * 150;
+      const windows = [];
+      for (let wy = 14; wy < bh - 12; wy += 16) {
+        for (let wx = 9; wx < bw - 9; wx += 13) {
+          if (Math.random() < 0.14) windows.push({ x: wx, y: wy, ph: Math.random() * Math.PI * 2 });
+        }
+      }
+      this.skyline.push({ x: sx, w: bw, h: bh, spire: Math.random() < 0.35, windows });
+      sx += bw + 6 + Math.random() * 34;
+    }
+
+    // better18: floating dust motes / fireflies drifting above the road
+    this.motes = [];
+    for (let i = 0; i < 26; i++) {
+      this.motes.push({
+        x: Math.random() * this.width,
+        y: this.groundY - Math.random() * 280,
+        r: 1 + Math.random() * 1.8,
+        ph: Math.random() * Math.PI * 2,
+        sp: 6 + Math.random() * 14
       });
     }
   }
@@ -133,6 +190,20 @@ export class World {
         bonus: true
       });
     }
+
+    // better18: vertical portals in the middle of long gaps between obstacles
+    // (>= 1.9s apart -> the portal never overlaps a jump line)
+    this.portals = [];
+    for (let i = 0; i < this.obstacles.length - 1; i++) {
+      const gap = this.obstacles[i + 1].kickTime - this.obstacles[i].kickTime;
+      if (gap >= 1.9) {
+        this.portals.push({
+          targetTime: this.obstacles[i].kickTime + gap * 0.5,
+          cx: 99999,
+          passed: false
+        });
+      }
+    }
   }
 
   reset(obstacleKicks = [], coinKicks = []) {
@@ -141,7 +212,7 @@ export class World {
     this.buildTimeline(obstacleKicks, coinKicks);
   }
 
-  update(dt, player, trackElapsedTime, onCoinCollected) {
+  update(dt, player, trackElapsedTime, onCoinCollected, onPortal) {
     this.scrollX += this.speed * dt;
     this.score += dt * 16;
     this.biomeStage = trackElapsedTime / 18.0;
@@ -161,6 +232,36 @@ export class World {
     for (const g of this.bgGraves) {
       g.x -= this.speed * 0.62 * dt;
       if (g.x < -60) g.x = this.width + 60 + Math.random() * 90;
+    }
+
+    // better18: drifting dust motes
+    for (const m of this.motes) {
+      m.x -= (10 + this.speed * 0.02) * dt;
+      m.y -= m.sp * dt * 0.35;
+      if (m.y < 70) m.y = this.groundY - 10;
+      if (m.x < -20) m.x = this.width + 20;
+    }
+
+    // better18: occasional bat flights across the sky
+    this.batTimer -= dt;
+    if (this.batTimer <= 0 && this.bats.length < 9) {
+      this.batTimer = 7 + Math.random() * 7;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const by = 70 + Math.random() * 170;
+      for (let i = 0; i < 3; i++) {
+        this.bats.push({
+          x: dir > 0 ? -50 - i * 36 : this.width + 50 + i * 36,
+          y: by + (i % 2) * 16 - 8,
+          vx: dir * (95 + Math.random() * 55),
+          ph: Math.random() * Math.PI * 2
+        });
+      }
+    }
+    for (let i = this.bats.length - 1; i >= 0; i--) {
+      const b = this.bats[i];
+      b.x += b.vx * dt;
+      b.y += Math.sin(performance.now() * 0.0026 + b.ph) * 14 * dt;
+      if (b.x < -130 || b.x > this.width + 130) this.bats.splice(i, 1);
     }
 
     if (player.y + player.height >= this.groundY) {
@@ -186,6 +287,20 @@ export class World {
       if (Math.abs(coin.x - playerAnchorX) < 38 && Math.abs(coin.y - playerCenterY) < 42) {
         coin.collected = true;
         if (onCoinCollected) onCoinCollected(coin);
+      }
+    }
+
+    // better18: vertical portals — a guaranteed reward gate the runner passes
+    // straight through (the ring is drawn behind the player)
+    if (onPortal) {
+      for (const p of this.portals) {
+        if (p.passed) continue;
+        const diff = p.targetTime - trackElapsedTime;
+        p.cx = playerAnchorX + diff * this.speed;
+        if (Math.abs(p.cx - playerAnchorX) < 30) {
+          p.passed = true;
+          onPortal(p);
+        }
       }
     }
 
@@ -241,7 +356,7 @@ export class World {
     ctx.strokeRect(x, y, w, h);
   }
 
-  render(ctx, beatPulse = 0, kickEnergy = 0, finale = 0) {
+  render(ctx, beatPulse = 0, kickEnergy = 0, finale = 0, fx = null) {
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -254,14 +369,65 @@ export class World {
     const totalKick = Math.min(1.25, beatPulse + kickEnergy * 0.55);
     const stageIdx = Math.floor(this.biomeStage) % 6;
 
+    // better18: melody-driven floor state (smoothed per frame)
+    const melTarget = fx ? Math.min(1, Math.max(0, fx.melody || 0)) : 0;
+    const pitchN = fx ? Math.max(0, Math.min(1, fx.pitch || 0.5)) : 0.5;
+    this.melodyLevel += (melTarget - this.melodyLevel) * 0.22;
+    const melody = this.melodyLevel;
+
     // Micro camera shake driven by kick energy (can be disabled in settings)
     const shake = this.shakeEnabled ? totalKick * 3.4 + finale * 2.4 : 0;
     ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
+    // 0. Layered sky gradient (better18: paper -> cloud -> hill, cached per theme)
+    const skyKey = `${P.paper}|${P.cloud}|${P.hill}`;
+    if (!this._skyGrad || this._skyKey !== skyKey) {
+      this._skyKey = skyKey;
+      const g = ctx.createLinearGradient(0, 0, 0, this.groundY);
+      g.addColorStop(0, P.paper);
+      g.addColorStop(0.55, P.cloud);
+      g.addColorStop(1, P.hill);
+      this._skyGrad = g;
+    }
+    ctx.fillStyle = this._skyGrad;
+    ctx.fillRect(-20, -20, this.width + 40, this.groundY + 22);
+
+    // 0a. Twinkling star field
+    const nowSec = performance.now() * 0.001;
+    for (const s of this.stars) {
+      const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(nowSec * s.sp + s.tw));
+      ctx.globalAlpha = tw * 0.5;
+      ctx.fillStyle = P.cloudDark;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      if (s.r > 1.7 && tw > 0.86) {
+        // rare bright-star cross sparkle
+        ctx.globalAlpha = (tw - 0.86) * 2.2;
+        ctx.strokeStyle = P.pale;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(s.x - s.r * 3.4, s.y);
+        ctx.lineTo(s.x + s.r * 3.4, s.y);
+        ctx.moveTo(s.x, s.y - s.r * 3.4);
+        ctx.lineTo(s.x, s.y + s.r * 3.4);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
 
     // 1. Volumetric Celestial Body
     const moonX = this.width - 240;
     const moonY = 145;
     const moonR = 64 + totalKick * 16 + finale * 12;
+
+    // better18: soft halo bloom around the moon
+    ctx.globalAlpha = 0.13 + totalKick * 0.09 + melody * 0.06;
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, moonR * 2.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
     ctx.strokeStyle = P.accent;
     ctx.lineWidth = 1.8;
@@ -301,6 +467,48 @@ export class World {
         ctx.stroke();
       }
     }
+
+    // 1a. Gothic skyline silhouettes with lit windows (slow parallax)
+    ctx.globalAlpha = 0.82;
+    ctx.fillStyle = P.hillDark;
+    ctx.strokeStyle = P.hillDark;
+    const skySpan = this.width * 2;
+    const skyOff = -((this.scrollX * 0.05) % skySpan);
+    for (let pass = 0; pass < 2; pass++) {
+      const baseOff = skyOff + pass * skySpan;
+      for (const s of this.skyline) {
+        const bx = s.x + baseOff;
+        if (bx + s.w < -60 || bx > this.width + 60) continue;
+        ctx.beginPath();
+        ctx.moveTo(bx, this.groundY);
+        ctx.lineTo(bx, this.groundY - s.h);
+        if (s.spire) {
+          ctx.lineTo(bx + s.w * 0.5, this.groundY - s.h - 34);
+          ctx.lineTo(bx + s.w, this.groundY - s.h);
+        } else {
+          ctx.lineTo(bx + s.w * 0.5, this.groundY - s.h - 12);
+          ctx.lineTo(bx + s.w, this.groundY - s.h);
+        }
+        ctx.lineTo(bx + s.w, this.groundY);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    // lit windows (drawn once, wrapped offset applied per window)
+    for (let pass = 0; pass < 2; pass++) {
+      const baseOff = skyOff + pass * skySpan;
+      for (const s of this.skyline) {
+        const bx = s.x + baseOff;
+        if (bx + s.w < -60 || bx > this.width + 60 || !s.windows.length) continue;
+        for (const w of s.windows) {
+          const flick = 0.5 + 0.5 * Math.sin(nowSec * 0.9 + w.ph);
+          ctx.globalAlpha = 0.22 + flick * 0.3;
+          ctx.fillStyle = P.accent;
+          ctx.fillRect(bx + w.x, this.groundY - s.h + w.y, 3, 4.5);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
 
     // 2. Hills
     ctx.fillStyle = P.hill;
@@ -369,16 +577,67 @@ export class World {
       ctx.restore();
     }
 
-    // 6. 3D Road
-    const roadDepth = 36;
-    ctx.fillStyle = P.road;
-    ctx.fillRect(0, this.groundY, this.width, roadDepth);
+    // 5a. better18: floating dust motes / fireflies above the road
+    for (const m of this.motes) {
+      const gl = 0.35 + 0.4 * (0.5 + 0.5 * Math.sin(nowSec * 1.6 + m.ph));
+      ctx.globalAlpha = gl;
+      ctx.fillStyle = P.accent;
+      ctx.beginPath();
+      ctx.arc(m.x + Math.sin(nowSec * 0.7 + m.ph) * 8, m.y, m.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
 
+    // 5b. better18: bat flights
+    ctx.strokeStyle = P.cloudDark;
+    ctx.lineWidth = 1.8;
+    for (const b of this.bats) {
+      const flap = Math.sin(nowSec * 13 + b.ph) * 4;
+      ctx.beginPath();
+      ctx.moveTo(b.x - 7, b.y - flap * 0.45);
+      ctx.quadraticCurveTo(b.x - 3, b.y - 3 - flap, b.x, b.y);
+      ctx.quadraticCurveTo(b.x + 3, b.y - 3 - flap, b.x + 7, b.y - flap * 0.45);
+      ctx.stroke();
+    }
+
+    // 5c. better18: song lyrics floating in the sky
+    if (this.lyrics && this.lyricsEnabled && this.lyrics.ready && fx) {
+      this.lyrics.draw(ctx, fx.t || 0, this.width * 0.5, 116, this.width - 360, P, this.glowEnabled);
+    }
+
+    // 6. 3D Road — the floor BREATHES with the lead melody (better18)
+    const roadDepth = 36;
+    const undAmp = 1.5 + melody * 7.2;
+    const undFreq = 0.011 + pitchN * 0.026;
+    const undPhase = (fx ? fx.t || 0 : 0) * (2.1 + melody * 3.2);
+    const SEG = 24;
+    const segW = this.width / SEG;
+
+    ctx.fillStyle = P.road;
+    ctx.beginPath();
+    ctx.moveTo(0, this.groundY);
+    for (let i = 0; i <= SEG; i++) {
+      const x = segW * i;
+      const y = this.groundY + Math.sin(undPhase + x * undFreq) * undAmp
+        + Math.sin(undPhase * 1.63 + x * undFreq * 2.17) * undAmp * 0.38;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(this.width, this.groundY + roadDepth);
+    ctx.lineTo(0, this.groundY + roadDepth);
+    ctx.closePath();
+    ctx.fill();
+
+    // road edges: top edge follows the melody wave, bottom stays straight
     ctx.strokeStyle = P.ink;
     ctx.lineWidth = 3.2;
     ctx.beginPath();
-    ctx.moveTo(0, this.groundY);
-    ctx.lineTo(this.width, this.groundY);
+    for (let i = 0; i <= SEG; i++) {
+      const x = segW * i;
+      const y = this.groundY + Math.sin(undPhase + x * undFreq) * undAmp
+        + Math.sin(undPhase * 1.63 + x * undFreq * 2.17) * undAmp * 0.38;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
     ctx.moveTo(0, this.groundY + roadDepth);
     ctx.lineTo(this.width, this.groundY + roadDepth);
     ctx.stroke();
@@ -389,6 +648,32 @@ export class World {
       ctx.moveTo(x, this.groundY);
       ctx.lineTo(x - 28, this.groundY + roadDepth);
       ctx.stroke();
+    }
+
+    // better18: melody shimmer — accent light streaks drifting inside the floor
+    if (melody > 0.08) {
+      ctx.globalAlpha = Math.min(0.55, melody * 0.5);
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 1.6 + melody * 2.2;
+      for (let row = 0; row < 2; row++) {
+        const ry = this.groundY + 11 + row * 12;
+        const wob = Math.sin(undPhase * 1.9 + row * 2.1) * 2.4;
+        ctx.beginPath();
+        ctx.moveTo(0, ry + wob);
+        ctx.lineTo(this.width, ry - wob);
+        ctx.stroke();
+      }
+      // vertical energy veins sliding with the road speed
+      ctx.globalAlpha = Math.min(0.5, melody * 0.42);
+      const veinGap = 168;
+      for (let x = -(this.scrollX * 0.9 % veinGap); x < this.width; x += veinGap) {
+        const vh = 4 + melody * 11;
+        ctx.beginPath();
+        ctx.moveTo(x, this.groundY + 5);
+        ctx.lineTo(x, this.groundY + 5 + vh);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
     }
 
     // Kick ground wave: accent line flashes along the road on every kick
@@ -410,6 +695,57 @@ export class World {
       ctx.globalAlpha = finale * 0.28 * pulse;
       ctx.fillRect(0, this.groundY, this.width, roadDepth);
       ctx.globalAlpha = 1;
+    }
+
+    // 6a. better18: vertical reward portals (drawn behind coins & player)
+    for (const p of this.portals) {
+      if (p.passed || p.cx < -90 || p.cx > this.width + 90) continue;
+      const px = p.cx;
+      const baseY = this.groundY + 8;
+      const ry = 86 + Math.sin(nowSec * 2 + px * 0.01) * 3.5;
+      const rx = 30 + Math.sin(nowSec * 2.6 + px * 0.013) * 2;
+      const cy = baseY - ry - 4;
+
+      // outer ring
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 4.2;
+      ctx.beginPath();
+      ctx.ellipse(px, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // rotating rune dashes on the inner ring
+      ctx.strokeStyle = P.pale;
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([7, 11]);
+      ctx.lineDashOffset = -nowSec * 46;
+      ctx.beginPath();
+      ctx.ellipse(px, cy, rx * 0.76, ry * 0.82, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // inner shimmer
+      ctx.globalAlpha = 0.13 + Math.sin(nowSec * 3.1 + px) * 0.05;
+      ctx.fillStyle = P.accent;
+      ctx.beginPath();
+      ctx.ellipse(px, cy, rx * 0.68, ry * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // stone base
+      ctx.fillStyle = P.stone;
+      ctx.strokeStyle = P.ink;
+      ctx.lineWidth = 2;
+      ctx.fillRect(px - rx - 10, baseY - 11, (rx + 10) * 2, 13);
+      ctx.strokeRect(px - rx - 10, baseY - 11, (rx + 10) * 2, 13);
+
+      // orbiting sparks
+      ctx.fillStyle = P.pale;
+      for (let k = 0; k < 3; k++) {
+        const a = nowSec * 2.4 + k * (Math.PI * 2 / 3);
+        ctx.beginPath();
+        ctx.arc(px + Math.cos(a) * (rx + 9), cy - Math.sin(a) * (ry * 0.55), 2.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     // 7. Render Rhythm Coins

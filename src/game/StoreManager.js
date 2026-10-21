@@ -12,7 +12,8 @@ export class StoreManager {
         theme: 'ink',
         quality: 'high',
         shake: true,
-        titleCollapsed: false
+        titleCollapsed: false,
+        lyrics: true
       }
     };
 

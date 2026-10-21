@@ -94,6 +94,9 @@
               <span>ДЛИНА: <b id="menu-track-len">-</b></span>
               <span>БИТОВ: <b id="menu-track-kicks">-</b></span>
             </div>
+            <div class="track-card-row">
+              <span>ТЕКСТ ПЕСНИ: <b id="lyrics-status">—</b></span>
+            </div>
             <button id="btn-calib-retry" class="sketch-btn" style="display: none; font-size: 11px; padding: 5px 12px; margin-top: 4px;">ЕЩЁ РАЗ (перекалибровать)</button>
           </div>
         </div>
@@ -138,6 +141,10 @@
         <span>ТРЯСКА ЭКРАНА:</span>
         <button id="btn-toggle-shake" class="sketch-btn">ВКЛ</button>
       </div>
+      <div class="settings-row">
+        <span>ТЕКСТ ПЕСНИ НА ФОНЕ:</span>
+        <button id="btn-toggle-lyrics" class="sketch-btn">ВКЛ</button>
+      </div>
 
       <div class="volume-box">
         <span>ГРОМКОСТЬ</span>
@@ -151,6 +158,7 @@
     <div class="panel" id="hud-panel" style="display: none;">
       <div class="title">NOCTURNE RHYTHM</div>
       <div id="track-name" style="font-size: 12px; font-weight: bold; word-break: break-all; margin-bottom: 6px;">-</div>
+      <div id="hud-lyrics" style="font-size: 10px; color: var(--accent); letter-spacing: 1px; margin: -4px 0 6px 0; display: none;"></div>
       <div class="metrics">
         <div class="metric-box">BPM: <b id="bpm-val">-</b> (<span id="bpm-mult-val">x1.0</span>)</div>
         <div class="metric-box">МОНЕТЫ: <b id="hud-coins-val">0</b></div>

@@ -319,6 +319,50 @@ export class ParticleSystem {
     }
   }
 
+  // better18: vertical portal pass-through burst
+  emitPortalBurst(x, y) {
+    this.push({
+      x, y,
+      vx: 0, vy: 0,
+      life: 0.8, decay: 1.3,
+      size: 12, rotation: 0, rotSpeed: 0,
+      growth: 430,
+      type: 'ring'
+    });
+
+    for (let i = 0; i < 16; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 120 + Math.random() * 240;
+      const type = i % 4 === 0 ? 'star' : i % 4 === 1 ? 'note' : i % 4 === 2 ? 'spirit_orb' : 'spark_orange';
+      this.push({
+        x,
+        y: y - 40,
+        vx: Math.cos(angle) * speed * 0.6,
+        vy: Math.sin(angle) * speed - 70,
+        life: 1.1, decay: 1.0,
+        size: type === 'note' ? 13 + Math.random() * 7 : 3.5 + Math.random() * 4,
+        rotation: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 8,
+        glyph: Math.random() < 0.5 ? '\u25c8' : '\u2726',
+        type
+      });
+    }
+
+    // vertical light columns shooting up from the portal
+    for (let i = 0; i < 5; i++) {
+      this.push({
+        x: x + (Math.random() - 0.5) * 52,
+        y: y + 8,
+        vx: 0,
+        vy: -330 - Math.random() * 170,
+        life: 0.9, decay: 1.25,
+        size: 2.5 + Math.random() * 2,
+        rotation: 0, rotSpeed: 0,
+        type: 'spark_orange'
+      });
+    }
+  }
+
   update(dt) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];

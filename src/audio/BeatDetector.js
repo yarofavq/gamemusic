@@ -29,6 +29,12 @@ export class BeatDetector {
     this.yt = null;
     this.ytDuration = 0;
 
+    // better18: melody map (lead-instrument energy + rough pitch, 20 Hz frames)
+    // drives the breathing floor animation.
+    this.melodyLevel = null;   // Float32Array 0..1
+    this.melodyPitch = null;   // Float32Array 0..1 (log-scale, 70..1100 Hz)
+    this.melodyHopSec = 0.05;
+
     this.prevSubRms = 0;
     this.subHistory = [];
     this.historySize = 25;
@@ -127,8 +133,13 @@ export class BeatDetector {
   async loadArrayBuffer(arrayBuffer) {
     await this.init();
     this.audioBuffer = await this.ctx.decodeAudioData(arrayBuffer);
-    const analysis = await this.extractPureKickDrumMap(this.audioBuffer);
+    // Kick analysis and melody extraction are independent offline renders
+    const [analysis, melody] = await Promise.all([
+      this.extractPureKickDrumMap(this.audioBuffer),
+      this.extractMelodyMap(this.audioBuffer)
+    ]);
     this.applyAnalysis(analysis);
+    this.setMelodyMap(melody);
     return this.bpm;
   }
 
@@ -189,7 +200,192 @@ export class BeatDetector {
   applySyntheticTrack(bpm, phaseSec, durationSec) {
     const kicks = this.buildKicksFromBpm(bpm, phaseSec, durationSec);
     this.applyAnalysis({ bpm, kickMap: kicks, ...this.buildGameplayTimelines(kicks, durationSec) });
+    this.synthesizeMelody(bpm, durationSec || 240);
     return this.bpm;
+  }
+
+  // ======================= better18: melody =======================
+
+  /**
+   * Lead-melody extraction (offline, own render so it can run in parallel
+   * with kick analysis):
+   * - bandpass 260..2600 Hz isolates lead instruments / vocals
+   * - per 50ms frame: RMS level + zero-crossing rough pitch
+   * - level normalized to the track's 95th percentile
+   * Returns { level: Float32Array, pitch: Float32Array, hopSec } or null.
+   */
+  async extractMelodyMap(buffer) {
+    try {
+      const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const rate = 22050;
+      const length = Math.floor(buffer.duration * rate);
+      if (length < rate) return null;
+
+      const octx = new OfflineCtx(1, length, rate);
+      const mono = octx.createBuffer(1, buffer.length, buffer.sampleRate);
+      const out = mono.getChannelData(0);
+      const chL = buffer.getChannelData(0);
+      const chR = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : chL;
+      for (let i = 0; i < buffer.length; i++) out[i] = (chL[i] + chR[i]) * 0.5;
+
+      const src = octx.createBufferSource();
+      src.buffer = mono;
+      const hp = octx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 260;
+      hp.Q.value = 0.71;
+      const lp = octx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2600;
+      lp.Q.value = 0.71;
+      src.connect(hp);
+      hp.connect(lp);
+      lp.connect(octx.destination);
+      src.start(0);
+
+      const rendered = await octx.startRendering();
+      const data = rendered.getChannelData(0);
+
+      const hopSec = 0.05;
+      const hopN = Math.max(1, Math.round(rate * hopSec));
+      const numFrames = Math.floor(data.length / hopN);
+      if (numFrames < 20) return null;
+
+      const level = new Float32Array(numFrames);
+      const pitch = new Float32Array(numFrames);
+      const logLo = Math.log(70);
+      const logHi = Math.log(1100);
+
+      for (let i = 0; i < numFrames; i++) {
+        let sum = 0;
+        let zc = 0;
+        const off = i * hopN;
+        let prev = data[off] >= 0 ? 1 : -1;
+        for (let j = 0; j < hopN; j++) {
+          const v = data[off + j];
+          sum += v * v;
+          const sgn = v >= 0 ? 1 : -1;
+          if (sgn !== prev) { zc++; prev = sgn; }
+        }
+        level[i] = Math.sqrt(sum / hopN);
+        const hz = (zc * rate) / (2 * hopN);
+        const clamped = Math.max(70, Math.min(1100, hz));
+        pitch[i] = (Math.log(clamped) - logLo) / (logHi - logLo);
+      }
+
+      // Normalize level to the track's own 95th percentile
+      const sorted = Float32Array.from(level).sort();
+      const p95 = Math.max(0.02, sorted[Math.floor(numFrames * 0.95)]);
+      for (let i = 0; i < numFrames; i++) level[i] = Math.min(1, level[i] / p95);
+
+      // EMA smooth the level so the floor breathes, not flickers
+      let ema = 0;
+      for (let i = 0; i < numFrames; i++) {
+        ema = ema * 0.55 + level[i] * 0.45;
+        level[i] = ema;
+      }
+
+      // Median-5 smooth the pitch, hold last value through unvoiced frames
+      const sm = new Float32Array(numFrames);
+      let last = 0.5;
+      for (let i = 0; i < numFrames; i++) {
+        const a = pitch[Math.max(0, i - 2)];
+        const b = pitch[Math.max(0, i - 1)];
+        const c = pitch[i];
+        const d = pitch[Math.min(numFrames - 1, i + 1)];
+        const e = pitch[Math.min(numFrames - 1, i + 2)];
+        const w = [a, b, c, d, e].sort((x, y) => x - y);
+        if (level[i] > 0.06) last = w[2];
+        sm[i] = last;
+      }
+
+      return { level, pitch: sm, hopSec };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  setMelodyMap(m) {
+    if (m && m.level && m.level.length) {
+      this.melodyLevel = m.level;
+      this.melodyPitch = m.pitch;
+      this.melodyHopSec = m.hopSec || 0.05;
+    } else {
+      this.melodyLevel = null;
+      this.melodyPitch = null;
+    }
+  }
+
+  /**
+   * YouTube path has no DSP access: synthesize a musical-feeling melody
+   * envelope from the calibrated beat grid (pulsing level + slow note walk).
+   */
+  synthesizeMelody(bpm, durationSec) {
+    const hop = 0.05;
+    const n = Math.max(20, Math.ceil(durationSec / hop));
+    const level = new Float32Array(n);
+    const pitch = new Float32Array(n);
+    const beat = 60 / Math.max(40, Math.min(240, bpm));
+    let seed = 987654321;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const noteHold = Math.max(1, Math.round((beat * 2) / hop));
+    let curPitch = 0.3 + rnd() * 0.4;
+    for (let i = 0; i < n; i++) {
+      const t = i * hop;
+      const ph = (t % beat) / beat;
+      const env = Math.max(0, 1 - ph * 2.4) * 0.75 + 0.14;
+      if (i % noteHold === 0) curPitch = 0.22 + rnd() * 0.62;
+      pitch[i] = curPitch;
+      level[i] = env;
+    }
+    let ema = 0;
+    for (let i = 0; i < n; i++) {
+      ema = ema * 0.5 + level[i] * 0.5;
+      level[i] = ema;
+    }
+    this.melodyLevel = level;
+    this.melodyPitch = pitch;
+    this.melodyHopSec = hop;
+  }
+
+  /** Sample the melody map at track time t (linear interpolation). */
+  getMelodyAt(t) {
+    const L = this.melodyLevel;
+    const Ph = this.melodyPitch;
+    if (!L || !L.length || !Ph || !Ph.length) return { level: 0, pitch: 0.5 };
+    const f = Math.max(0, t) / this.melodyHopSec;
+    const i = Math.min(L.length - 1, Math.floor(f));
+    const j = Math.min(L.length - 1, i + 1);
+    const fr = f - i;
+    return {
+      level: L[i] + (L[j] - L[i]) * fr,
+      pitch: Ph[i] + (Ph[j] - Ph[i]) * fr
+    };
+  }
+
+  /** Compact 10 Hz quantized melody for the P2P guest transfer. */
+  packMelodyForNet() {
+    if (!this.melodyLevel || !this.melodyLevel.length) return null;
+    const step = Math.max(1, Math.round(0.1 / this.melodyHopSec));
+    const L = [];
+    const Ph = [];
+    for (let i = 0; i < this.melodyLevel.length; i += step) {
+      L.push(Math.round(this.melodyLevel[i] * 99));
+      Ph.push(Math.round(this.melodyPitch[i] * 99));
+    }
+    return { hop: this.melodyHopSec * step, level: L, pitch: Ph };
+  }
+
+  setMelodyFromNet(m) {
+    try {
+      if (!m || !m.level || !m.level.length) return;
+      this.melodyLevel = Float32Array.from(m.level, (v) => Math.max(0, Math.min(1, v / 99)));
+      this.melodyPitch = Float32Array.from(m.pitch && m.pitch.length ? m.pitch : m.level, (v) => Math.max(0, Math.min(1, v / 99)));
+      this.melodyHopSec = m.hop || 0.1;
+    } catch (_) {}
   }
 
   /**

@@ -10,6 +10,13 @@ import { World } from './game/World.js';
 import { StoreManager } from './game/StoreManager.js';
 import { NetClient } from './game/NetClient.js';
 import { YouTubeTrack, parseYouTubeUrl } from './audio/YouTubeTrack.js';
+import {
+  LyricsTrack,
+  parseId3Tags,
+  guessFromFilename,
+  cleanVideoTitle,
+  fetchLyrics
+} from './audio/LyricsEngine.js';
 import { P, THEMES, applyTheme, themeAccentVec } from './render/Theme.js';
 
 const VIRTUAL_WIDTH = 1280;
@@ -37,6 +44,10 @@ class GameApp {
     this.player.setEquippedItem(this.store.data.equippedItem);
     this.player.isGrounded = true;
 
+    // better18: song lyrics on the background
+    this.lyrics = new LyricsTrack();
+    this.world.lyrics = this.lyrics;
+
     // Apply saved settings: visual theme, particle quality, camera shake
     this.settings = this.store.data.settings;
     this.themeId = THEMES[this.settings.theme] ? this.settings.theme : 'ink';
@@ -44,6 +55,9 @@ class GameApp {
     this.particles.setQuality(this.settings.quality);
     this.world.shakeEnabled = !!this.settings.shake;
     this.world.glowEnabled = this.settings.quality !== 'low';
+    this.world.lyricsEnabled = this.settings.lyrics !== false;
+    const lyricsBtn = document.getElementById('btn-toggle-lyrics');
+    if (lyricsBtn) lyricsBtn.textContent = this.world.lyricsEnabled ? 'ВКЛ' : 'ВЫКЛ';
 
     this.lastTime = 0;
     this.beatPulse = 0;
@@ -315,6 +329,79 @@ class GameApp {
       : (this.ytReady ? 'ИГРАТЬ ▶' : 'ВСТАВЬ ССЫЛКУ И ЗАГРУЗИ');
   }
 
+  // ---------------- Lyrics on the background (better18) ----------------
+
+  setLyricsStatus(text, found) {
+    const menuEl = document.getElementById('lyrics-status');
+    if (menuEl) {
+      menuEl.textContent = text;
+      menuEl.style.color = found ? 'var(--accent)' : '';
+    }
+    const hudEl = document.getElementById('hud-lyrics');
+    if (hudEl) {
+      hudEl.textContent = found ? `ТЕКСТ ПЕСНИ: ${text}` : '';
+      hudEl.style.display = found ? 'block' : 'none';
+    }
+  }
+
+  async loadLyricsFromFile(file) {
+    try {
+      const head = await file.slice(0, 262144).arrayBuffer();
+      const tags = parseId3Tags(head);
+      let title = tags.title;
+      let artist = tags.artist;
+      if (!title) {
+        const g = guessFromFilename(file.name);
+        title = g.title;
+        artist = artist || g.artist;
+      }
+      if (!title) {
+        this.setLyricsStatus('—', false);
+        return;
+      }
+      await this.resolveLyrics({ title, artist }, this.audio.getDuration());
+    } catch (_) {
+      this.setLyricsStatus('—', false);
+    }
+  }
+
+  async loadLyricsFromTitle(rawTitle, duration) {
+    try {
+      const c = cleanVideoTitle(rawTitle);
+      if (!c.title) {
+        this.setLyricsStatus('—', false);
+        return;
+      }
+      await this.resolveLyrics(c, duration);
+    } catch (_) {
+      this.setLyricsStatus('—', false);
+    }
+  }
+
+  async resolveLyrics(meta, duration) {
+    this.lyrics.clear();
+    this.setLyricsStatus('ИЩУ...', false);
+    const res = await fetchLyrics({ title: meta.title, artist: meta.artist, duration });
+    if (res) {
+      this.lyrics.setFromResult(res, duration);
+    }
+    if (this.lyrics.ready) {
+      this.setLyricsStatus(this.lyrics.lang || 'НАЙДЕН', true);
+      // Host relays the resolved lyrics to the guest (also a fallback if the
+      // guest's own lrclib lookup finds nothing)
+      if (this.mp.active && this.mp.isHost && this.net.conn && this.net.conn.open) {
+        this.net.send({
+          t: 'lyrics',
+          lines: this.lyrics.lines.slice(0, 400),
+          lang: this.lyrics.lang || '',
+          synced: this.lyrics.synced
+        });
+      }
+    } else {
+      this.setLyricsStatus('—', false);
+    }
+  }
+
   // ---------------- Multiplayer helpers ----------------
 
   setMpHint(text) {
@@ -387,11 +474,16 @@ class GameApp {
     try {
       this.setMpHint('Трек получен. Загружаю...');
       const bpm = await this.audio.loadFromHost(payload.buffer, payload.map);
+      this.audio.setMelodyFromNet(payload.map && payload.map.melody);
       this.bpmCoinMult = this.store.getBpmCoinMultiplier(bpm);
       document.getElementById('track-name').textContent = payload.name || 'Трек хоста';
       document.getElementById('bpm-val').textContent = `${bpm}`;
       document.getElementById('bpm-mult-val').textContent = `x${this.bpmCoinMult}`;
       this.world.setBPM(bpm, this.audio.obstacleKicks, this.audio.coinKicks);
+      // better18: host may relay lyrics for this track a moment later;
+      // reset any previous song's text meanwhile
+      this.lyrics.clear();
+      this.setLyricsStatus('—', false);
       this.mp.ready = true;
       this.net.send({ t: 'guest_ready' });
       this.setMpHint('Готов! Ждём старт от хоста...');
@@ -488,6 +580,8 @@ class GameApp {
       const meta = await this.yt.load(id);
       this.yt.setVolume(parseInt(document.getElementById('volume-slider').value, 10) || 75);
       document.getElementById('menu-track-name').textContent = meta.title || 'YouTube-трек';
+      // better18: find lyrics for the YouTube track (non-blocking)
+      this.loadLyricsFromTitle(meta.title || '', this.yt.getDuration() || this.yt.duration || 0);
       hint.textContent = 'Сейчас заиграет кусок трека — СЛУШАЙ БОЧКУ и ТАКАЙ В РИТМ (пробел / кнопка). Нужно хотя бы 10 тапов.';
       this.refreshYtStartButton();
       this.startCalibration();
@@ -615,7 +709,8 @@ class GameApp {
       bpm: this.audio.bpm,
       kickMap: this.audio.kickMap,
       obstacleKicks: this.audio.obstacleKicks,
-      coinKicks: this.audio.coinKicks
+      coinKicks: this.audio.coinKicks,
+      melody: this.audio.packMelodyForNet()
     });
     this.mp.hostTrackSent = true;
     if (this.mp.guestReady) {
@@ -639,11 +734,14 @@ class GameApp {
         obstacleKicks: m.obstacleKicks || [],
         coinKicks: m.coinKicks || []
       });
+      this.audio.setMelodyFromNet(m.melody);
       this.bpmCoinMult = this.store.getBpmCoinMultiplier(this.audio.bpm);
       document.getElementById('track-name').textContent = m.title || 'YouTube-трек';
       document.getElementById('bpm-val').textContent = `${Math.round(this.audio.bpm * 10) / 10}`;
       document.getElementById('bpm-mult-val').textContent = `x${this.bpmCoinMult}`;
       this.world.setBPM(this.audio.bpm, this.audio.obstacleKicks, this.audio.coinKicks);
+      // better18: the guest also fetches its own copy of the lyrics
+      this.loadLyricsFromTitle(m.title || '', m.duration || 0);
       this.mp.ready = true;
       this.net.send({ t: 'guest_ready' });
       this.setMpHint('Трек с YouTube готов! Ждём старт от хоста...');
@@ -806,6 +904,13 @@ class GameApp {
         const local = this.audio.getElapsedTime();
         const diff = (m.tt || 0) - local;
         if (Math.abs(diff) > 0.35) this.yt.seekPlay(local + diff);
+      }
+    });
+    // better18: host-relayed lyrics (fallback when the guest's own lookup fails)
+    this.net.on('lyrics', (m) => {
+      if (m && Array.isArray(m.lines) && m.lines.length) {
+        this.lyrics.setFromData(m.lines, m.lang, m.synced);
+        if (this.lyrics.ready) this.setLyricsStatus(this.lyrics.lang || 'НАЙДЕН', true);
       }
     });
     this.net.on('start', (m) => {
@@ -1207,6 +1312,18 @@ class GameApp {
       this.renderThemeCards();
     });
 
+    // better18: background song lyrics toggle
+    const lyricsToggle = document.getElementById('btn-toggle-lyrics');
+    if (lyricsToggle) {
+      lyricsToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.settings.lyrics = this.settings.lyrics === false; // default is ON
+        this.store.setSetting('lyrics', this.settings.lyrics);
+        this.world.lyricsEnabled = this.settings.lyrics;
+        lyricsToggle.textContent = this.settings.lyrics ? 'ВКЛ' : 'ВЫКЛ';
+      });
+    }
+
     document.getElementById('btn-title-toggle').addEventListener('click', (e) => {
       e.stopPropagation();
       this.settings.titleCollapsed = !this.settings.titleCollapsed;
@@ -1297,8 +1414,11 @@ class GameApp {
             bpm,
             kickMap: this.audio.kickMap,
             obstacleKicks: this.audio.obstacleKicks,
-            coinKicks: this.audio.coinKicks
+            coinKicks: this.audio.coinKicks,
+            melody: this.audio.packMelodyForNet()
           };
+          // better18: lyrics lookup in the background (relayed to the guest when found)
+          this.loadLyricsFromFile(file);
           if (this.net.conn && this.net.conn.open) {
             this.setMpHint('Отправляю трек другу...');
             this.setMpProgress(0, trackCopy.byteLength);
@@ -1322,6 +1442,8 @@ class GameApp {
       document.getElementById('bpm-val').textContent = `${bpm}`;
       document.getElementById('bpm-mult-val').textContent = `x${this.bpmCoinMult}`;
       this.world.setBPM(bpm, this.audio.obstacleKicks, this.audio.coinKicks);
+      // better18: lyrics lookup in the background (non-blocking)
+      this.loadLyricsFromFile(file);
 
       if (!this.mp.active) {
         this.startRun();
@@ -1400,6 +1522,7 @@ class GameApp {
     this.player.isGrounded = true;
     this.player.isFlipping = false;
     this.world.reset(this.audio.obstacleKicks, this.audio.coinKicks);
+    this.lyrics.reset();
     this.beatPhase = 0;
 
     // In multiplayer only the host controls restarts
@@ -1508,6 +1631,15 @@ class GameApp {
         this.store.addCoins(val);
         document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+${this.runCoins})`;
         this.particles.emitJudgment(`+${val} МОНЕТ`, coin.x, coin.y - 10, 'PERFECT');
+      }, (portal) => {
+        // better18: portal pass-through reward
+        const val = Math.max(2, Math.round(6 * this.bpmCoinMult * (this.finale > 0 ? 2 : 1)));
+        this.runCoins += val;
+        this.store.addCoins(val);
+        this.world.score += 80;
+        document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+${this.runCoins})`;
+        this.particles.emitPortalBurst(portal.cx, this.world.groundY - 20);
+        this.particles.emitJudgment('ПОРТАЛ!', portal.cx, this.world.groundY - 190, 'PERFECT');
       });
       this.particles.update(dt);
       if (hit && this.blastT <= 0) {
@@ -1553,7 +1685,12 @@ class GameApp {
     const scaleY = this.sceneCanvas.height / VIRTUAL_HEIGHT;
     this.sceneCtx.scale(scaleX, scaleY);
 
-    this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale);
+    const mel = this.audio.getMelodyAt(elapsed);
+    this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale, {
+      t: elapsed,
+      melody: mel.level,
+      pitch: mel.pitch
+    });
     if (this.mp.active && this.mp.peer.st === 'play' && this.isPlayingTrack) {
       this.player.renderGhost(this.sceneCtx, this.mp.peer.y, this.mp.peer.f, this.mp.peer.c);
     }
