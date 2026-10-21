@@ -150,6 +150,78 @@ body[data-theme="violet"] {
   --glow: 0 0 10px rgba(183, 138, 255, 0.45);
 }
 
+body[data-theme="cyber_gold"] {
+  --bg: #0d0b08; --panel: rgba(22, 18, 12, 0.95); --panel-brd: #ffd700;
+  --text: #fff3c4; --text-muted: #a68b3c;
+  --accent: #ffb800; --accent-dark: #ffd700; --accent2: #00f0ff;
+  --card: #1a150c; --card-brd: #4a3b18; --card-active: #2b2210;
+  --shadow: #000000; --field: #141009; --radius: 8px;
+  --glow: 0 0 10px rgba(255, 215, 0, 0.4);
+}
+
+body[data-theme="phantom_mint"] {
+  --bg: #091916; --panel: rgba(14, 34, 30, 0.95); --panel-brd: #52ffcb;
+  --text: #d9fff4; --text-muted: #5ca892;
+  --accent: #1de9b6; --accent-dark: #52ffcb; --accent2: #7c4dff;
+  --card: #102a24; --card-brd: #24584c; --card-active: #183c34;
+  --shadow: #000000; --field: #0d221e; --radius: 12px;
+  --glow: 0 0 10px rgba(82, 255, 203, 0.4);
+}
+
+body[data-theme="crimson_eclipse"] {
+  --bg: #0c0406; --panel: rgba(24, 8, 12, 0.95); --panel-brd: #ff1744;
+  --text: #ffd6de; --text-muted: #9e3a4e;
+  --accent: #ff1744; --accent-dark: #ff5252; --accent2: #ff9100;
+  --card: #1a080c; --card-brd: #4d1420; --card-active: #2c0d16;
+  --shadow: #000000; --field: #140609; --radius: 6px;
+  --glow: 0 0 10px rgba(255, 23, 68, 0.45);
+}
+
+body[data-theme="royal_velvet"] {
+  --bg: #1a0e24; --panel: #261436; --panel-brd: #e0a94f;
+  --text: #f7e6c4; --text-muted: #9c7a97;
+  --accent: #e0a94f; --accent-dark: #f5c77e; --accent2: #d83a7c;
+  --card: #2d1840; --card-brd: #5c386e; --card-active: #3d2056;
+  --shadow: #0c0612; --field: #20102e; --radius: 4px;
+  --glow: none;
+}
+
+body[data-theme="eldritch"] {
+  --bg: #08120e; --panel: rgba(12, 26, 20, 0.95); --panel-brd: #00e676;
+  --text: #c8ffe0; --text-muted: #528c6e;
+  --accent: #00e676; --accent-dark: #69f0ae; --accent2: #b388ff;
+  --card: #10221a; --card-brd: #264d3b; --card-active: #183629;
+  --shadow: #000000; --field: #0c1a14; --radius: 10px;
+  --glow: 0 0 10px rgba(0, 230, 118, 0.4);
+}
+
+body[data-theme="frostfire"] {
+  --bg: #0d1522; --panel: rgba(16, 26, 42, 0.95); --panel-brd: #ff6d00;
+  --text: #e3f2fd; --text-muted: #648dae;
+  --accent: #ff6d00; --accent-dark: #ff9e40; --accent2: #00b0ff;
+  --card: #142236; --card-brd: #29486b; --card-active: #1c314d;
+  --shadow: #000000; --field: #101b2b; --radius: 10px;
+  --glow: 0 0 10px rgba(255, 109, 0, 0.4);
+}
+
+body[data-theme="monochrome_red"] {
+  --bg: #f2f2f2; --panel: #ffffff; --panel-brd: #111111;
+  --text: #111111; --text-muted: #555555;
+  --accent: #d50000; --accent-dark: #9b0000; --accent2: #111111;
+  --card: #eaeaea; --card-brd: #222222; --card-active: #dcdcdc;
+  --shadow: #111111; --field: #f5f5f5; --radius: 0px;
+  --glow: none;
+}
+
+body[data-theme="celestial"] {
+  --bg: #eef4fa; --panel: #ffffff; --panel-brd: #1e4b8f;
+  --text: #163666; --text-muted: #5374a6;
+  --accent: #d49b1c; --accent-dark: #b37e0e; --accent2: #2979ff;
+  --card: #f5f9fd; --card-brd: #8faed9; --card-active: #e1ecf7;
+  --shadow: rgba(30, 75, 143, 0.35); --field: #f5f9fd; --radius: 12px;
+  --glow: none;
+}
+
 body, html {
   width: 100%;
   height: 100%;
@@ -1019,4 +1091,66 @@ input[type="range"]::-webkit-slider-thumb {
   left: -9999px;
   top: 0;
   overflow: hidden;
+}
+
+/* ---------- better19: transitions, toast, wallet bump ---------- */
+
+#fade-veil {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.42s ease;
+  z-index: 40;
+}
+
+#fade-veil.on {
+  opacity: 1;
+}
+
+#menu-toast {
+  position: absolute;
+  top: 86px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-10px);
+  z-index: 41;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  outline: 1px solid var(--panel-brd);
+  outline-offset: -5px;
+  border-radius: calc(var(--radius) * 0.7);
+  padding: 11px 28px;
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--accent);
+  box-shadow: 5px 5px 0px var(--shadow), var(--glow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  text-align: center;
+  max-width: 88%;
+}
+
+#menu-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+#menu-coins-val {
+  display: inline-block;
+}
+
+.wallet-bump {
+  animation: wallet-bump 0.75s ease;
+}
+
+@keyframes wallet-bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.22); color: var(--accent); }
+  100% { transform: scale(1); }
 }

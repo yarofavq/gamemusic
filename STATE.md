@@ -45,3 +45,15 @@
 
 ## Логика монет
 ×(bpm/100)^1.65, PERFECT=3 базовых, серия /5 бонус, в финале ×2.
+
+## better19
+Конец трека (соло) → blast 2.2с → fadeToMenu (вейл #fade-veil 0.42с +
+тост #menu-toast 2.9с + бамп казны) вместо showGameOver. MP сохраняет
+экран результата. Перф: шейдер стиль1 3 выборки (bloom из CA-тапов),
+стиль2 2 выборки; World.buildStaticLayers (скайлайн+звёзды в офскрин,
+ребилд по markThemeChanged/setQuality); адаптивный renderScale 1.0→0.6 по
+_frameAvg>22.5мс, возврат <14.5мс с кулдауном 7с; caps по качеству:
+stars 45/80/110, motes 10/18/26, bats 4/6/9, comets 1/2/3, pillars 14/22/32.
+Fever: combo≥20 → world.fever (край дороги crimson, магнит монет 50/54,
+порталы ×1.5). onLand-колбэк → пыль приземления. this.dom — кэш горячих
+DOM-ссылок (score/combo/coins/beat/banner/vs).

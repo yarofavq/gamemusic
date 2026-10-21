@@ -53,15 +53,43 @@ class GameApp {
     this.themeId = THEMES[this.settings.theme] ? this.settings.theme : 'ink';
     applyTheme(this.themeId);
     this.particles.setQuality(this.settings.quality);
+    this.world.setQuality(this.settings.quality);
     this.world.shakeEnabled = !!this.settings.shake;
     this.world.glowEnabled = this.settings.quality !== 'low';
     this.world.lyricsEnabled = this.settings.lyrics !== false;
     const lyricsBtn = document.getElementById('btn-toggle-lyrics');
     if (lyricsBtn) lyricsBtn.textContent = this.world.lyricsEnabled ? 'ВКЛ' : 'ВЫКЛ';
 
+    // better19: cached hot DOM refs — the loop runs 60fps, no repeated lookups
+    this.dom = {
+      score: document.getElementById('score-val'),
+      combo: document.getElementById('combo-val'),
+      coins: document.getElementById('hud-coins-val'),
+      beat: document.getElementById('beat-indicator'),
+      banner: document.getElementById('finale-banner'),
+      vsPanel: document.getElementById('vs-panel'),
+      vsMy: document.getElementById('vs-my-score'),
+      vsPeer: document.getElementById('vs-peer-score'),
+      vsCrownMy: document.getElementById('vs-crown-my'),
+      vsCrownPeer: document.getElementById('vs-crown-peer')
+    };
+
+    // better19: adaptive resolution governor — keeps 60fps on weak GPUs by
+    // scaling the internal render buffers (CSS keeps the canvas fullscreen).
+    // Fixes the heavy-theme stutter regardless of device/GPU.
+    this.renderScale = 1.0;
+    this._frameAvg = 16.7;
+    this._frameTimer = 0;
+    this._scaleCooldown = 0;
+    this._fading = false;
+    this._toastTimer = null;
+
     this.lastTime = 0;
     this.beatPulse = 0;
     this.beatPhase = 0;
+    this.snareEnergy = 0;
+    this.silenceEffect = 0;
+    this.recentEnergyAvg = 0.15;
     this.combo = 0;
     this.maxCombo = 0;
     this.runCoins = 0;
@@ -137,9 +165,10 @@ class GameApp {
   }
 
   resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.0);
-    const w = Math.floor(window.innerWidth * dpr);
-    const h = Math.floor(window.innerHeight * dpr);
+    // better19: renderScale = adaptive resolution factor (1.0 -> 0.6)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.0) * (this.renderScale || 1);
+    const w = Math.max(320, Math.floor(window.innerWidth * dpr));
+    const h = Math.max(240, Math.floor(window.innerHeight * dpr));
 
     this.glCanvas.width = w;
     this.glCanvas.height = h;
@@ -226,6 +255,7 @@ class GameApp {
   setTheme(id) {
     this.themeId = id;
     applyTheme(id);
+    this.world.markThemeChanged(); // better19: re-bake skyline/stars for the new palette
     this.store.setSetting('theme', id);
     this.renderThemeCards();
   }
@@ -356,12 +386,14 @@ class GameApp {
         artist = artist || g.artist;
       }
       if (!title) {
-        this.setLyricsStatus('—', false);
-        return;
+        const dotIdx = file.name.lastIndexOf('.');
+        title = dotIdx > 0 ? file.name.substring(0, dotIdx) : file.name;
       }
-      await this.resolveLyrics({ title, artist }, this.audio.getDuration());
+      await this.resolveLyrics({ title, artist: artist || '' }, this.audio.getDuration());
     } catch (_) {
-      this.setLyricsStatus('—', false);
+      const dotIdx = file.name.lastIndexOf('.');
+      const fallbackTitle = dotIdx > 0 ? file.name.substring(0, dotIdx) : file.name;
+      await this.resolveLyrics({ title: fallbackTitle, artist: '' }, this.audio.getDuration());
     }
   }
 
@@ -381,14 +413,42 @@ class GameApp {
   async resolveLyrics(meta, duration) {
     this.lyrics.clear();
     this.setLyricsStatus('ИЩУ...', false);
-    const res = await fetchLyrics({ title: meta.title, artist: meta.artist, duration });
-    if (res) {
-      this.lyrics.setFromResult(res, duration);
+    const dur = duration || this.audio.getDuration() || 180;
+    try {
+      const res = await fetchLyrics({ title: meta.title, artist: meta.artist, duration: dur });
+      if (res) {
+        this.lyrics.setFromResult(res, dur);
+      }
+    } catch (_) {}
+
+    if (!this.lyrics.ready || !this.lyrics.lines || this.lyrics.lines.length === 0) {
+      const title = (meta && meta.title) ? meta.title : 'NOCTURNE RHYTHM';
+      const step = Math.max(2.8, (60 / (this.audio.bpm || 120)) * 4);
+      const chants = [
+        '✦ ' + title.toUpperCase() + ' ✦',
+        'В ТЕНИ НОЧНОГО ГОРОДА',
+        'ЧЕРНИЛА ВЕДУТ ТВОЙ ШАГ',
+        'БИТ ПУЛЬСИРУЕТ В ТЕМНОТЕ',
+        'ПРЫЖОК В ТАКТ — СЕРИЯ РАСТЕТ',
+        'ГОТИЧЕСКИЙ РИТМ В СЕРДЦЕ',
+        'НЕ СБИВАЙСЯ С БОЧКИ',
+        'ЛЕТЯТ ПРИЗРАЧНЫЕ ИСКРЫ',
+        'СКВОЗЬ МРАК И ТУМАН',
+        'ЧИСТЫЙ РИТМ — ЧИСТЫЙ ПУТЬ'
+      ];
+      const autoLines = [];
+      let t = 0.8;
+      let cIdx = 0;
+      while (t < dur + 15) {
+        autoLines.push({ time: t, text: chants[cIdx % chants.length] });
+        t += step;
+        cIdx++;
+      }
+      this.lyrics.setFromData(autoLines, 'РИТМ', true);
     }
+
     if (this.lyrics.ready) {
       this.setLyricsStatus(this.lyrics.lang || 'НАЙДЕН', true);
-      // Host relays the resolved lyrics to the guest (also a fallback if the
-      // guest's own lrclib lookup finds nothing)
       if (this.mp.active && this.mp.isHost && this.net.conn && this.net.conn.open) {
         this.net.send({
           t: 'lyrics',
@@ -786,7 +846,7 @@ class GameApp {
   // ---------------- VS duel panel (better17) ----------------
 
   updateVsPanel() {
-    const panel = document.getElementById('vs-panel');
+    const panel = this.dom.vsPanel; // better19: cached refs
     if (!panel) return;
     const show = this.mp.active && this.isPlayingTrack && !this.isGameOver;
     if (!show) {
@@ -799,10 +859,10 @@ class GameApp {
     if (this._vsCache.my === my && this._vsCache.peer === p) return;
     this._vsCache.my = my;
     this._vsCache.peer = p;
-    document.getElementById('vs-my-score').textContent = my;
-    document.getElementById('vs-peer-score').textContent = p;
-    document.getElementById('vs-crown-my').style.visibility = my > p ? 'visible' : 'hidden';
-    document.getElementById('vs-crown-peer').style.visibility = p > my ? 'visible' : 'hidden';
+    this.dom.vsMy.textContent = my;
+    this.dom.vsPeer.textContent = p;
+    this.dom.vsCrownMy.style.visibility = my > p ? 'visible' : 'hidden';
+    this.dom.vsCrownPeer.style.visibility = p > my ? 'visible' : 'hidden';
   }
 
   // ---------------- Pause overlay ----------------
@@ -1077,7 +1137,7 @@ class GameApp {
     if (!dur || !this.isPlayingTrack || this.isGameOver) {
       if (this.blastT <= 0) {
         this.finale = 0;
-        document.getElementById('finale-banner').style.display = 'none';
+        this.dom.banner.style.display = 'none';
       }
       return;
     }
@@ -1089,17 +1149,19 @@ class GameApp {
     // blast (storm + shockwave volleys + score bonus), THEN the results show.
     if (remain <= 0 && !this.blastStarted && this.pauseState === 'none') {
       this.blastStarted = true;
-      this.blastT = 4.4;
+      this.blastT = 2.2;
       this.blastVolley = 0;
       this.world.score += 500; // clear bonus
-      const b = document.getElementById('finale-banner');
-      b.textContent = '\u2694 TRACK CLEAR \u2014 МОНЕТЫ \u00d72 \u2694';
-      b.style.display = 'block';
+      const b = this.dom.banner;
+      if (b) {
+        b.textContent = '⚔ TRACK CLEAR — МОНЕТЫ ×2 ⚔';
+        b.style.display = 'block';
+      }
       this.particles.emitFinaleStorm(this.player.x + 20, this.player.y + 20, this.world.groundY, 1);
       return;
     }
 
-    const banner = document.getElementById('finale-banner');
+    const banner = this.dom.banner;
     if (this.finale > 0.02 && this.pauseState === 'none') {
       banner.style.display = 'block';
     } else {
@@ -1206,8 +1268,7 @@ class GameApp {
           const coinsEarned = Math.max(1, Math.round((baseCoin + comboBonus) * this.bpmCoinMult * finaleBonus));
           this.runCoins += coinsEarned;
           this.store.addCoins(coinsEarned);
-          document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+${this.runCoins})`;
-          labelText += ` +${coinsEarned}`;
+  ___SKIP___
         }
 
         this.particles.emitJudgment(
@@ -1217,9 +1278,9 @@ class GameApp {
           rating === 'OFF-BEAT' && actionType === 'AIR_FLIP' ? 'GOOD' : rating
         );
 
-        document.getElementById('combo-val').textContent = `x${this.combo}`;
+        this.dom.combo.textContent = `x${this.combo}`;
 
-        const ind = document.getElementById('beat-indicator');
+        const ind = this.dom.beat;
         ind.classList.add('pulse');
         setTimeout(() => ind.classList.remove('pulse'), 90);
       }
@@ -1299,6 +1360,7 @@ class GameApp {
         this.settings.quality = btn.dataset.q;
         this.store.setSetting('quality', btn.dataset.q);
         this.particles.setQuality(btn.dataset.q);
+        this.world.setQuality(btn.dataset.q); // better19: detail caps + layer re-bake
         this.world.glowEnabled = btn.dataset.q !== 'low';
         this.renderThemeCards();
       });
@@ -1465,24 +1527,10 @@ class GameApp {
       }
     });
 
+    // better19: buttons now go through the smooth fade transition
     const returnToMenu = (e) => {
       if (e) e.stopPropagation();
-      this.stopRiser();
-      this.audio.stop();
-      this.isPlayingTrack = false;
-      this.isGameOver = false;
-      this.pauseState = 'none';
-      this.finale = 0;
-      this.riserPlayed = false;
-      this.blastStarted = false;
-      this.blastT = 0;
-      this.hidePauseOverlay();
-      if (this.mp.active) this.resetMpView();
-      this.renderShopUI();
-      document.getElementById('game-over').style.display = 'none';
-      document.getElementById('hud-panel').style.display = 'none';
-      document.getElementById('start-modal').style.display = 'block';
-      if (this.menuMusicEnabled) this.menuMusic.start(false);
+      this.fadeToMenu(false);
     };
 
     document.getElementById('btn-back-menu').addEventListener('click', returnToMenu);
@@ -1508,12 +1556,12 @@ class GameApp {
     this.riserPlayed = false;
     this.blastStarted = false;
     this.blastT = 0;
-    document.getElementById('finale-banner').textContent = '\u2694 ФИНАЛ \u2014 МОНЕТЫ \u00d72 \u2694';
-    document.getElementById('combo-val').textContent = 'x0';
-    document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+0)`;
+    this.dom.banner.textContent = '\u2694 ФИНАЛ \u2014 МОНЕТЫ \u00d72 \u2694';
+    this.dom.combo.textContent = 'x0';
+    this.dom.coins.textContent = `${this.store.data.coins} (+0)`;
     document.getElementById('game-over').style.display = 'none';
     document.getElementById('mp-result').style.display = 'none';
-    document.getElementById('finale-banner').style.display = 'none';
+    this.dom.banner.style.display = 'none';
     this.mp.overSent = false;
     this.mp.resolved = false;
     this.mp.iFinished = false;
@@ -1539,8 +1587,10 @@ class GameApp {
     }
 
     this.audio.play(() => {
-      // Track-end completion is handled by the TRACK CLEAR blast sequence in
-      // the main loop (updateFinale -> blast -> triggerTrackComplete).
+      if (!this.blastStarted) {
+        this.blastStarted = true;
+        this.blastT = 1.8;
+      }
     }, 0);
   }
 
@@ -1555,11 +1605,69 @@ class GameApp {
       this.showGameOver(true);
       this.finishMpResult(true);
     } else {
-      this.renderShopUI();
-      this.showGameOver(true);
-      document.getElementById('start-modal').style.display = 'none';
-      if (this.menuMusicEnabled) this.menuMusic.start(false);
+      // better19: конец трека больше НЕ показывает экран проигрыша —
+      // плавный авто-возврат в меню с тостом о добытых монетах
+      const earned = this.runCoins;
+      this.fadeToMenu(true, earned);
     }
+  }
+
+  /**
+   * better19: fade-out -> reset to menu -> fade-in. Used by both the manual
+   * "МЕНЮ" buttons and the new automatic end-of-track return.
+   */
+  fadeToMenu(trackCleared, earnedCoins = 0) {
+    if (this._fading) return;
+    this._fading = true;
+    const veil = document.getElementById('fade-veil');
+    if (veil) veil.classList.add('on');
+    setTimeout(() => {
+      this.returnToMenuCore();
+      if (trackCleared) {
+        this.showMenuToast(`\u2694 ТРЕК ПРОЙДЕН — ДОБЫТО +${earnedCoins} МОНЕТ \u2694`);
+      }
+      setTimeout(() => {
+        if (veil) veil.classList.remove('on');
+        this._fading = false;
+      }, 150);
+    }, 440);
+  }
+
+  /** The actual menu reset (was: inline body of the old returnToMenu). */
+  returnToMenuCore() {
+    this.stopRiser();
+    this.audio.stop();
+    this.isPlayingTrack = false;
+    this.isGameOver = false;
+    this.pauseState = 'none';
+    this.finale = 0;
+    this.riserPlayed = false;
+    this.blastStarted = false;
+    this.blastT = 0;
+    this.hidePauseOverlay();
+    if (this.mp.active) this.resetMpView();
+    this.renderShopUI();
+    document.getElementById('game-over').style.display = 'none';
+    document.getElementById('hud-panel').style.display = 'none';
+    document.getElementById('start-modal').style.display = 'block';
+    if (this.menuMusicEnabled) this.menuMusic.start(false);
+    // better19: celebrate the wallet after a run
+    const wallet = document.getElementById('menu-coins-val');
+    if (wallet) {
+      wallet.classList.remove('wallet-bump');
+      void wallet.offsetWidth;
+      wallet.classList.add('wallet-bump');
+    }
+  }
+
+  /** better19: floating "TRACK CLEARED / +coins" banner over the menu. */
+  showMenuToast(text) {
+    const t = document.getElementById('menu-toast');
+    if (!t) return;
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => t.classList.remove('show'), 2900);
   }
 
   triggerGameOver() {
@@ -1580,16 +1688,62 @@ class GameApp {
 
   loop(timeMs) {
     const timeSeconds = timeMs * 0.001;
-    const dt = Math.min((timeSeconds - (this.lastTime || timeSeconds)), 0.04);
+    const rawDt = Math.min(timeSeconds - (this.lastTime || timeSeconds), 0.25);
+    const dt = Math.min(rawDt, 0.04);
     this.lastTime = timeSeconds;
+
+    // better19: adaptive resolution governor — watches the real frame time and
+    // scales the internal render buffers down/up so weak GPUs hold ~60fps
+    // (this is what kills the "other themes lag" problem on any device)
+    if (!document.hidden && this.pauseState === 'none') {
+      this._frameAvg = this._frameAvg * 0.95 + rawDt * 1000 * 0.05;
+      this._frameTimer += rawDt;
+      this._scaleCooldown -= rawDt;
+      if (this._frameTimer > 1.5) {
+        this._frameTimer = 0;
+        if (this._frameAvg > 22.5 && this.renderScale > 0.62) {
+          this.renderScale = Math.max(0.6, this.renderScale - 0.15);
+          this.resize();
+        } else if (this._frameAvg < 14.5 && this.renderScale < 1.0 && this._scaleCooldown <= 0) {
+          this.renderScale = Math.min(1.0, this.renderScale + 0.1);
+          this._scaleCooldown = 7;
+          this.resize();
+        }
+      }
+    } else {
+      this._frameAvg = 16.7;
+      this._frameTimer = 0;
+    }
 
     const isKickHit = this.audio.update();
     const elapsed = this.audio.getElapsedTime();
     this.beatPhase = this.audio.getNextKickProgress(elapsed);
 
+    this.player.comboLevel = this.combo;
+    const currentEnergy = (this.audio.kickIntensity || 0.0) + (this.audio.frequencyData ? this.audio.frequencyData.reduce((a, b) => a + b, 0) / (this.audio.frequencyData.length * 255) : 0.1);
+    this.recentEnergyAvg = this.recentEnergyAvg * 0.95 + currentEnergy * 0.05;
+    const suddenDrop = this.isPlayingTrack && !this.isGameOver && this.recentEnergyAvg > 0.08 && currentEnergy < 0.015;
+    if (suddenDrop) {
+      this.silenceEffect = Math.min(1.0, this.silenceEffect + dt * 4.0);
+    } else {
+      if (this.silenceEffect > 0.45 && currentEnergy > 0.07 && this.isPlayingTrack) {
+        this.beatPulse = 1.3;
+        this.particles.emitFinaleStorm(this.player.x + 20, this.player.y + 20, this.world.groundY, 0.85);
+        this.particles.emitJudgment('⚡ ДРОП! ⚡', this.player.x + 20, this.player.y - 45, 'PERFECT');
+      }
+      this.silenceEffect = Math.max(0.0, this.silenceEffect - dt * 3.2);
+    }
+
+    const isSnareHit = this.audio.isSnareHit ? this.audio.isSnareHit() : (this.audio.snareIntensity > 0.65);
+    if (isSnareHit && this.isPlayingTrack) {
+      this.snareEnergy = 1.0;
+      this.particles.emitSnareHit(this.player.x + this.player.width / 2, this.player.y + this.player.height / 2);
+    }
+    this.snareEnergy = Math.max(0.0, this.snareEnergy - dt * 5.0);
+
     if (isKickHit) {
       this.beatPulse = 1.0;
-      const ind = document.getElementById('beat-indicator');
+      const ind = this.dom.beat;
       ind.classList.add('pulse');
       setTimeout(() => ind.classList.remove('pulse'), 85);
       this.particles.emitKickShock(
@@ -1618,8 +1772,15 @@ class GameApp {
           1.35
         );
       }
-      if (this.blastT <= 0) this.triggerTrackComplete();
+      if (this.blastT <= 0) {
+        this.blastT = 0;
+        this.triggerTrackComplete();
+        return;
+      }
     }
+
+    // better19: FEVER state (combo 20+) — crimson road edge + wider coin magnet
+    this.world.fever = this.combo >= 20 && this.isPlayingTrack && !this.isGameOver;
 
     const frozen = this.pauseState !== 'none' || document.hidden;
     if (this.isPlayingTrack && !this.isGameOver && !frozen) {
@@ -1629,17 +1790,20 @@ class GameApp {
         const val = Math.max(2, Math.round((coin.bonus ? 8 : 4) * this.bpmCoinMult * (1 + Math.min(this.combo * 0.05, 1.5)) * finaleCoinBonus));
         this.runCoins += val;
         this.store.addCoins(val);
-        document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+${this.runCoins})`;
+        this.dom.coins.textContent = `${this.store.data.coins} (+${this.runCoins})`;
         this.particles.emitJudgment(`+${val} МОНЕТ`, coin.x, coin.y - 10, 'PERFECT');
       }, (portal) => {
-        // better18: portal pass-through reward
-        const val = Math.max(2, Math.round(6 * this.bpmCoinMult * (this.finale > 0 ? 2 : 1)));
+        // better18: portal pass-through reward — scales with combo in fever
+        const val = Math.max(2, Math.round(6 * this.bpmCoinMult * (this.finale > 0 ? 2 : 1) * (this.world.fever ? 1.5 : 1)));
         this.runCoins += val;
         this.store.addCoins(val);
         this.world.score += 80;
-        document.getElementById('hud-coins-val').textContent = `${this.store.data.coins} (+${this.runCoins})`;
+        this.dom.coins.textContent = `${this.store.data.coins} (+${this.runCoins})`;
         this.particles.emitPortalBurst(portal.cx, this.world.groundY - 20);
         this.particles.emitJudgment('ПОРТАЛ!', portal.cx, this.world.groundY - 190, 'PERFECT');
+      }, (pl, power) => {
+        // better19: landing dust puff scaled by impact speed
+        this.particles.emitJumpDust(pl.x + pl.width / 2, pl.y + pl.height, Math.round(5 + power * 14), false);
       });
       this.particles.update(dt);
       if (hit && this.blastT <= 0) {
@@ -1674,7 +1838,7 @@ class GameApp {
       }
     }
 
-    document.getElementById('score-val').textContent = Math.floor(this.world.score);
+    this.dom.score.textContent = Math.floor(this.world.score);
 
     // 1. Render 2D Scene scaled from virtual 1280x720 to native resolution
     this.sceneCtx.save();
@@ -1691,6 +1855,52 @@ class GameApp {
       melody: mel.level,
       pitch: mel.pitch
     });
+
+    // Snare hit corner slash flash
+    if (this.snareEnergy > 0.05) {
+      this.sceneCtx.save();
+      this.sceneCtx.globalAlpha = this.snareEnergy * 0.65;
+      this.sceneCtx.strokeStyle = P.crimson;
+      this.sceneCtx.lineWidth = 6 * this.snareEnergy;
+      this.sceneCtx.strokeRect(10, 10, VIRTUAL_WIDTH - 20, VIRTUAL_HEIGHT - 20);
+      this.sceneCtx.restore();
+    }
+
+    // Silence / Breakdown vignette & seal
+    if (this.silenceEffect > 0.01) {
+      this.sceneCtx.save();
+      this.sceneCtx.fillStyle = `rgba(14, 10, 14, ${this.silenceEffect * 0.72})`;
+      this.sceneCtx.fillRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+      this.sceneCtx.strokeStyle = P.accent;
+      this.sceneCtx.lineWidth = 2.0;
+      this.sceneCtx.globalAlpha = this.silenceEffect;
+      this.sceneCtx.beginPath();
+      this.sceneCtx.arc(VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2 - 40, 68 * this.silenceEffect, 0, Math.PI * 2);
+      this.sceneCtx.stroke();
+      this.sceneCtx.fillStyle = P.pale;
+      this.sceneCtx.font = '900 22px Georgia, serif';
+      this.sceneCtx.textAlign = 'center';
+      this.sceneCtx.fillText('— БЕЗДНА ТИШИНЫ —', VIRTUAL_WIDTH / 2, VIRTUAL_HEIGHT / 2 - 34);
+      this.sceneCtx.restore();
+    }
+
+    // Top Track Progress Bar & Fever Banner
+    if (this.isPlayingTrack && !this.isGameOver) {
+      const dur = Math.max(1, this.audio.getDuration() || 1);
+      const prog = Math.max(0, Math.min(1, elapsed / dur));
+      this.sceneCtx.save();
+      this.sceneCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+      this.sceneCtx.fillRect(0, 0, VIRTUAL_WIDTH, 6);
+      this.sceneCtx.fillStyle = this.combo >= 20 ? P.crimson : P.accent;
+      this.sceneCtx.fillRect(0, 0, VIRTUAL_WIDTH * prog, 6);
+      if (this.combo >= 15) {
+        this.sceneCtx.font = '900 15px Georgia, serif';
+        this.sceneCtx.textAlign = 'right';
+        this.sceneCtx.fillStyle = P.crimson;
+        this.sceneCtx.fillText('🔥 FEVER x' + this.combo, VIRTUAL_WIDTH - 92, 56);
+      }
+      this.sceneCtx.restore();
+    }
     if (this.mp.active && this.mp.peer.st === 'play' && this.isPlayingTrack) {
       this.player.renderGhost(this.sceneCtx, this.mp.peer.y, this.mp.peer.f, this.mp.peer.c);
     }
@@ -1709,7 +1919,7 @@ class GameApp {
     gl.uniform1f(this.uTime, timeSeconds);
     gl.uniform2f(this.uResolution, this.glCanvas.width, this.glCanvas.height);
     gl.uniform1f(this.uBeatPulse, this.beatPulse);
-    gl.uniform1f(this.uKickEnergy, this.audio.kickIntensity || 0.0);
+    gl.uniform1f(this.uKickEnergy, Math.max(this.audio.kickIntensity || 0.0, this.snareEnergy * 0.75));
     gl.uniform1f(this.uBiomeProgress, this.world.biomeStage || 0.0);
     gl.uniform1f(this.uStyle, THEMES[this.themeId] ? THEMES[this.themeId].style : 0);
     gl.uniform1f(this.uFinale, this.finale);

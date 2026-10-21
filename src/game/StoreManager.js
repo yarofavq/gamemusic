@@ -33,7 +33,15 @@ export class StoreManager {
       { id: 'candle_monk', name: 'Монах Воскового Ордена', price: 22000, badge: 'XIII' },
       { id: 'hellhound', name: 'Пёс Преисподней', price: 26000, badge: 'XIV' },
       { id: 'plague', name: 'Чумной Доктор', price: 30000, badge: 'XV' },
-      { id: 'star_weaver', name: 'Ткач Звёзд', price: 35000, badge: 'XVI' }
+      { id: 'star_weaver', name: 'Ткач Звёзд', price: 35000, badge: 'XVI' },
+      { id: 'alchemist', name: 'Алхимик Чумы', price: 38000, badge: 'XVII' },
+      { id: 'fallen_seraph', name: 'Падший Серафим', price: 42000, badge: 'XVIII' },
+      { id: 'void_walker', name: 'Странник Пустоты', price: 46000, badge: 'XIX' },
+      { id: 'clockwork_knight', name: 'Заводной Рыцарь', price: 50000, badge: 'XX' },
+      { id: 'blood_shogun', name: 'Кровавый Сёгун', price: 55000, badge: 'XXI' },
+      { id: 'astral_bard', name: 'Астральный Бард', price: 60000, badge: 'XXII' },
+      { id: 'lich_king', name: 'Архилич', price: 68000, badge: 'XXIII' },
+      { id: 'eclipse_avatar', name: 'Аватар Затмения', price: 75000, badge: 'XXIV' }
     ];
 
     this.itemsCatalog = [
@@ -42,12 +50,19 @@ export class StoreManager {
       { id: 'flame_halo', name: 'Печать Пламени', price: 750, desc: 'Вращающаяся огненная руна за спиной' },
       { id: 'floating_lantern', name: 'Астральный Фонарь', price: 1400, desc: 'Освещает путь и оставляет искры' },
       { id: 'skull_orbit', name: 'Хоровод Черепов', price: 1800, desc: 'Три черепа кружат вокруг тебя' },
-      { id: 'ghost_candles', name: 'Призрачные Свечи', price: 3200, desc: 'Парящие свечи с дрожащим огнём' },
-      { id: 'spider_charm', name: 'Амулет Паука', price: 4600, desc: 'Паук на нити следит за дорожкой' },
       { id: 'blood_wings', name: 'Крылья Ворона', price: 2800, desc: 'Раскрываются при прыжке и кувырке' },
-      { id: 'scythe_aura', name: 'Аура Жатвы', price: 6000, desc: 'Две косы смерти вращаются за спиной' },
+      { id: 'ghost_candles', name: 'Призрачные Свечи', price: 3200, desc: 'Парящие свечи с дрожащим огнём' },
       { id: 'frost_orb', name: 'Око Бури', price: 3800, desc: 'Ледяной спутник с холодным дыханием' },
-      { id: 'star_chain', name: 'Звёздная Цепь', price: 8000, desc: 'Созвездие звёзд кружит вокруг тебя' }
+      { id: 'spider_charm', name: 'Амулет Паука', price: 4600, desc: 'Паук на нити следит за дорожкой' },
+      { id: 'chrono_gears', name: 'Шестерни Времени', price: 5200, desc: 'Часовой механизм вращается в такт' },
+      { id: 'scythe_aura', name: 'Аура Жатвы', price: 6000, desc: 'Две косы смерти вращаются за спиной' },
+      { id: 'void_eye', name: 'Око Бездны', price: 6800, desc: 'Всевидящее око над головой героя' },
+      { id: 'lightning_coil', name: 'Дуга Теслы', price: 7400, desc: 'Разряды молний бьют вокруг тебя' },
+      { id: 'star_chain', name: 'Звёздная Цепь', price: 8000, desc: 'Созвездие звёзд кружит вокруг тебя' },
+      { id: 'rose_whirlwind', name: 'Вихрь Чёрных Роз', price: 8800, desc: 'Бутоны готических роз кружат в воздухе' },
+      { id: 'seraph_halo', name: 'Венец Серафима', price: 10500, desc: 'Сияющий нимб с золотыми лучами' },
+      { id: 'phantom_blades', name: 'Призрачные Клинки', price: 12500, desc: 'Четыре парящих меча танцуют в бит' },
+      { id: 'eclipse_crown', name: 'Корона Затмения', price: 15000, desc: 'Чёрное солнце с пылающим кольцом' }
     ];
 
     this.themesCatalog = [
@@ -63,7 +78,15 @@ export class StoreManager {
       { id: 'ember', name: 'УГЛИ', desc: 'Пылающий хор' },
       { id: 'sakura', name: 'САКУРА', desc: 'Лепестки в ночи' },
       { id: 'verdigris', name: 'ПАТИНА', desc: 'Медный крипт' },
-      { id: 'violet', name: 'ПОЛУНОЧЬ', desc: 'Лиловая аврора' }
+      { id: 'violet', name: 'ПОЛУНОЧЬ', desc: 'Лиловая аврора' },
+      { id: 'cyber_gold', name: 'КИБЕР-ЗОЛОТО', desc: 'Обсидиан и золото' },
+      { id: 'phantom_mint', name: 'МЯТА', desc: 'Призрачный туман' },
+      { id: 'crimson_eclipse', name: 'ЗАТМЕНИЕ', desc: 'Чёрное солнце' },
+      { id: 'royal_velvet', name: 'БАРХАТ', desc: 'Пурпур и бронза' },
+      { id: 'eldritch', name: 'НЕКРОНОМИКОН', desc: 'Изумрудный мрак' },
+      { id: 'frostfire', name: 'ЛЁД И ПЛАМЯ', desc: 'Лазурь и медь' },
+      { id: 'monochrome_red', name: 'СИН-СИТИ', desc: 'Ч/б и алая кровь' },
+      { id: 'celestial', name: 'НЕБЕСНЫЙ ХРАМ', desc: 'Мрамор и лазурь' }
     ];
 
     this.load();

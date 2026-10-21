@@ -34,6 +34,25 @@ export class World {
     this.melodyPitch = 0.5;
     this._skyGrad = null;
     this._skyKey = '';
+    this.comets = [];
+    this.cometTimer = 2.0;
+    this.lightningBolt = null;
+    this.lightningAlpha = 0;
+
+    // better19: quality-scaled detail caps + baked static layers + fever
+    this.quality = 'high';
+    this.maxStars = 110;
+    this.maxMotes = 26;
+    this.maxBats = 9;
+    this.maxComets = 3;
+    this.pillarCount = 32;
+    this.liveStars = 16;
+    this.fever = false;
+    this.onLand = null;
+    this._layersDirty = true;
+    this._skyCanvas = null;
+    this._starCanvas = null;
+    this._lastFxT = 0;
 
     // Jump Lead Time: when player jumps exactly on a kick, they reach peak clearance ~0.16s after jump takeoff.
     // Setting obstacle center arrival to kickTime + 0.16s means jumping ON the kick makes you soar cleanly over the obstacle!
@@ -117,6 +136,91 @@ export class World {
         sp: 6 + Math.random() * 14
       });
     }
+  }
+
+  /**
+   * better19: scale scenery detail by the quality setting (low/mid/high).
+   * Called by main.js whenever the user changes particle quality — keeps
+   * weaker devices smooth while baking the heavy static layers.
+   */
+  setQuality(level) {
+    this.quality = level === 'low' ? 'low' : level === 'mid' ? 'mid' : 'high';
+    const q = this.quality;
+    this.maxStars = q === 'low' ? 45 : q === 'mid' ? 80 : 110;
+    this.maxMotes = q === 'low' ? 10 : q === 'mid' ? 18 : 26;
+    this.maxBats = q === 'low' ? 4 : q === 'mid' ? 6 : 9;
+    this.maxComets = q === 'low' ? 1 : q === 'mid' ? 2 : 3;
+    this.pillarCount = q === 'low' ? 14 : q === 'mid' ? 22 : 32;
+    this.liveStars = Math.min(16, this.maxStars);
+    this._layersDirty = true;
+  }
+
+  markThemeChanged() {
+    this._layersDirty = true;
+  }
+
+  /**
+   * better19: bake the expensive static background (gothic skyline + lit
+   * windows, star field) into offscreen canvases once per theme/quality.
+   * Replaces ~600+ per-frame path/fillRect ops with 2-3 drawImage calls.
+   */
+  buildStaticLayers() {
+    this._layersDirty = false;
+    const SKY_H = 250;
+
+    // --- skyline silhouettes + baked window glow (2x width, wraps) ---
+    if (!this._skyCanvas || this._skyCanvas.width !== this.width * 2 || this._skyCanvas.height !== SKY_H) {
+      this._skyCanvas = document.createElement('canvas');
+      this._skyCanvas.width = this.width * 2;
+      this._skyCanvas.height = SKY_H;
+    }
+    const sc = this._skyCanvas.getContext('2d');
+    sc.clearRect(0, 0, this._skyCanvas.width, SKY_H);
+    const baseY = SKY_H;
+    sc.fillStyle = P.hillDark;
+    for (const s of this.skyline) {
+      sc.beginPath();
+      sc.moveTo(s.x, baseY);
+      sc.lineTo(s.x, baseY - s.h);
+      if (s.spire) {
+        sc.lineTo(s.x + s.w * 0.5, baseY - s.h - 34);
+        sc.lineTo(s.x + s.w, baseY - s.h);
+      } else {
+        sc.lineTo(s.x + s.w * 0.5, baseY - s.h - 12);
+        sc.lineTo(s.x + s.w, baseY - s.h);
+      }
+      sc.lineTo(s.x + s.w, baseY);
+      sc.closePath();
+      sc.fill();
+    }
+    sc.fillStyle = P.accent;
+    for (const s of this.skyline) {
+      for (const w of s.windows) {
+        // flicker phase is baked into a stable per-window brightness variety
+        const flick = 0.5 + 0.5 * Math.sin(w.ph * 3.17);
+        sc.globalAlpha = 0.2 + flick * 0.42;
+        sc.fillRect(s.x + w.x, baseY - s.h + w.y, 3, 4.5);
+      }
+    }
+    sc.globalAlpha = 1;
+
+    // --- static star field (all stars beyond the live twinkle subset) ---
+    if (!this._starCanvas || this._starCanvas.height !== 372) {
+      this._starCanvas = document.createElement('canvas');
+      this._starCanvas.width = this.width;
+      this._starCanvas.height = 372;
+    }
+    const stc = this._starCanvas.getContext('2d');
+    stc.clearRect(0, 0, this._starCanvas.width, this._starCanvas.height);
+    stc.fillStyle = P.cloudDark;
+    for (let i = this.liveStars; i < this.stars.length && i < this.maxStars; i++) {
+      const s = this.stars[i];
+      stc.globalAlpha = 0.16 + 0.3 * (s.r / 2.1);
+      stc.beginPath();
+      stc.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      stc.fill();
+    }
+    stc.globalAlpha = 1;
   }
 
   setBPM(bpm, obstacleKicks = [], coinKicks = []) {
@@ -212,7 +316,7 @@ export class World {
     this.buildTimeline(obstacleKicks, coinKicks);
   }
 
-  update(dt, player, trackElapsedTime, onCoinCollected, onPortal) {
+  update(dt, player, trackElapsedTime, onCoinCollected, onPortal, onLand) {
     this.scrollX += this.speed * dt;
     this.score += dt * 16;
     this.biomeStage = trackElapsedTime / 18.0;
@@ -234,8 +338,10 @@ export class World {
       if (g.x < -60) g.x = this.width + 60 + Math.random() * 90;
     }
 
-    // better18: drifting dust motes
-    for (const m of this.motes) {
+    // better18: drifting dust motes (better19: capped by quality)
+    const mCap = Math.min(this.motes.length, this.maxMotes);
+    for (let mi = 0; mi < mCap; mi++) {
+      const m = this.motes[mi];
       m.x -= (10 + this.speed * 0.02) * dt;
       m.y -= m.sp * dt * 0.35;
       if (m.y < 70) m.y = this.groundY - 10;
@@ -244,7 +350,7 @@ export class World {
 
     // better18: occasional bat flights across the sky
     this.batTimer -= dt;
-    if (this.batTimer <= 0 && this.bats.length < 9) {
+    if (this.batTimer <= 0 && this.bats.length < this.maxBats) {
       this.batTimer = 7 + Math.random() * 7;
       const dir = Math.random() < 0.5 ? 1 : -1;
       const by = 70 + Math.random() * 170;
@@ -266,11 +372,14 @@ export class World {
 
     if (player.y + player.height >= this.groundY) {
       player.y = this.groundY - player.height;
+      const impact = player.vy;
       player.vy = 0;
       if (!player.isGrounded) {
         player.isGrounded = true;
         player.squash = 1.28;
         player.stretch = 0.78;
+        // better19: landing dust puff scaled by impact speed
+        if (onLand && impact > 240) onLand(player, Math.min(1, impact / 900));
       }
     }
 
@@ -284,7 +393,10 @@ export class World {
       const timeDiff = coin.targetTime - trackElapsedTime;
       coin.x = playerAnchorX + timeDiff * this.speed;
 
-      if (Math.abs(coin.x - playerAnchorX) < 38 && Math.abs(coin.y - playerCenterY) < 42) {
+      // better19: fever widens the coin magnet
+      const magX = this.fever ? 50 : 38;
+      const magY = this.fever ? 54 : 42;
+      if (Math.abs(coin.x - playerAnchorX) < magX && Math.abs(coin.y - playerCenterY) < magY) {
         coin.collected = true;
         if (onCoinCollected) onCoinCollected(coin);
       }
@@ -357,6 +469,11 @@ export class World {
   }
 
   render(ctx, beatPulse = 0, kickEnergy = 0, finale = 0, fx = null) {
+    // better19: real per-frame dt for comet/lightning timers (was hardcoded 0.016)
+    const fxT = fx ? (fx.t || 0) : 0;
+    let fxDT = fxT - (this._lastFxT || 0);
+    this._lastFxT = fxT;
+    if (!(fxDT > 0) || fxDT > 0.06) fxDT = 0.016;
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -392,9 +509,13 @@ export class World {
     ctx.fillStyle = this._skyGrad;
     ctx.fillRect(-20, -20, this.width + 40, this.groundY + 22);
 
-    // 0a. Twinkling star field
+    // 0a. Star field — static base baked once per theme (better19), live twinkles on top
+    if (this._layersDirty) this.buildStaticLayers();
+    if (this._starCanvas) ctx.drawImage(this._starCanvas, 0, 0);
     const nowSec = performance.now() * 0.001;
-    for (const s of this.stars) {
+    const liveCap = Math.min(this.liveStars, this.stars.length);
+    for (let si = 0; si < liveCap; si++) {
+      const s = this.stars[si];
       const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(nowSec * s.sp + s.tw));
       ctx.globalAlpha = tw * 0.5;
       ctx.fillStyle = P.cloudDark;
@@ -416,10 +537,108 @@ export class World {
     }
     ctx.globalAlpha = 1;
 
+    // 0b. Shooting comets & kick-triggered gothic lightning
+    this.cometTimer -= fxDT;
+    if (this.cometTimer <= 0 && this.comets.length < this.maxComets) {
+      this.cometTimer = 2.2 + Math.random() * 3.5;
+      this.comets.push({
+        x: 200 + Math.random() * (this.width - 250),
+        y: 25 + Math.random() * 110,
+        vx: -360 - Math.random() * 220,
+        vy: 90 + Math.random() * 70,
+        len: 55 + Math.random() * 45,
+        life: 1.0
+      });
+    }
+    for (let i = this.comets.length - 1; i >= 0; i--) {
+      const cm = this.comets[i];
+      cm.x += cm.vx * fxDT;
+      cm.y += cm.vy * fxDT;
+      cm.life -= fxDT * 1.35;
+      if (cm.life <= 0) {
+        this.comets.splice(i, 1);
+        continue;
+      }
+      ctx.save();
+      ctx.globalAlpha = cm.life * 0.75;
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(cm.x, cm.y);
+      ctx.lineTo(cm.x - cm.vx * 0.12, cm.y - cm.vy * 0.12);
+      ctx.stroke();
+      ctx.fillStyle = P.pale;
+      ctx.beginPath();
+      ctx.arc(cm.x, cm.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (totalKick > 0.82 && this.lightningAlpha <= 0.05 && Math.random() < 0.45) {
+      const lx = 140 + Math.random() * (this.width - 380);
+      const pts = [{ x: lx, y: 0 }];
+      let curX = lx;
+      let curY = 0;
+      while (curY < this.groundY - 40) {
+        curX += (Math.random() - 0.5) * 56;
+        curY += 35 + Math.random() * 45;
+        pts.push({ x: curX, y: curY });
+      }
+      this.lightningBolt = pts;
+      this.lightningAlpha = 0.9;
+    }
+    if (this.lightningAlpha > 0.01 && this.lightningBolt) {
+      this.lightningAlpha = Math.max(0, this.lightningAlpha - fxDT * 3.6);
+      ctx.save();
+      ctx.globalAlpha = this.lightningAlpha;
+      ctx.strokeStyle = P.pale;
+      ctx.lineWidth = 3.2;
+      ctx.beginPath();
+      for (let i = 0; i < this.lightningBolt.length; i++) {
+        const pt = this.lightningBolt[i];
+        if (i === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 0c. Cathedral Audio-Reactive Sky Pillars
+    const barCount = this.pillarCount;
+    const barSpan = this.width / barCount;
+    ctx.save();
+    ctx.globalAlpha = 0.16 + totalKick * 0.14 + finale * 0.12;
+    ctx.fillStyle = P.accent;
+    for (let b = 0; b < barCount; b++) {
+      const wave = 0.5 + 0.5 * Math.sin(nowSec * 3.8 + b * 0.45 + pitchN * 4.0);
+      const bh = 25 + wave * (55 + melody * 110 + totalKick * 95);
+      const bx = b * barSpan + 4;
+      ctx.fillRect(bx, this.groundY - bh, barSpan - 8, bh);
+    }
+    ctx.restore();
+
     // 1. Volumetric Celestial Body
     const moonX = this.width - 240;
     const moonY = 145;
     const moonR = 64 + totalKick * 16 + finale * 12;
+
+    // Rotating astrolabe rays behind the moon
+    ctx.save();
+    ctx.translate(moonX, moonY);
+    ctx.rotate(nowSec * 0.18);
+    ctx.strokeStyle = P.accent;
+    ctx.globalAlpha = 0.22 + totalKick * 0.25;
+    ctx.lineWidth = 1.6;
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const rIn = moonR + 8;
+      const rOut = moonR + (k % 2 === 0 ? 54 : 30) + totalKick * 28;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * rIn, Math.sin(a) * rIn);
+      ctx.lineTo(Math.cos(a) * rOut, Math.sin(a) * rOut);
+      ctx.stroke();
+    }
+    ctx.restore();
 
     // better18: soft halo bloom around the moon
     ctx.globalAlpha = 0.13 + totalKick * 0.09 + melody * 0.06;
@@ -468,47 +687,34 @@ export class World {
       }
     }
 
-    // 1a. Gothic skyline silhouettes with lit windows (slow parallax)
-    ctx.globalAlpha = 0.82;
-    ctx.fillStyle = P.hillDark;
-    ctx.strokeStyle = P.hillDark;
-    const skySpan = this.width * 2;
-    const skyOff = -((this.scrollX * 0.05) % skySpan);
-    for (let pass = 0; pass < 2; pass++) {
-      const baseOff = skyOff + pass * skySpan;
-      for (const s of this.skyline) {
-        const bx = s.x + baseOff;
-        if (bx + s.w < -60 || bx > this.width + 60) continue;
-        ctx.beginPath();
-        ctx.moveTo(bx, this.groundY);
-        ctx.lineTo(bx, this.groundY - s.h);
-        if (s.spire) {
-          ctx.lineTo(bx + s.w * 0.5, this.groundY - s.h - 34);
-          ctx.lineTo(bx + s.w, this.groundY - s.h);
-        } else {
-          ctx.lineTo(bx + s.w * 0.5, this.groundY - s.h - 12);
-          ctx.lineTo(bx + s.w, this.groundY - s.h);
-        }
-        ctx.lineTo(bx + s.w, this.groundY);
-        ctx.closePath();
-        ctx.fill();
-      }
+    // 1a. Gothic skyline — baked layer drawn with 2 drawImage calls (better19;
+    // the old version did ~600 path ops + fillRects every frame)
+    if (this._layersDirty) this.buildStaticLayers();
+    if (this._skyCanvas) {
+      const skySpan = this.width * 2;
+      const skyOff = -((this.scrollX * 0.05) % skySpan);
+      const skyY = this.groundY - this._skyCanvas.height;
+      ctx.globalAlpha = 0.82;
+      ctx.drawImage(this._skyCanvas, skyOff, skyY);
+      ctx.drawImage(this._skyCanvas, skyOff + skySpan, skyY);
+      ctx.globalAlpha = 1;
     }
-    // lit windows (drawn once, wrapped offset applied per window)
-    for (let pass = 0; pass < 2; pass++) {
-      const baseOff = skyOff + pass * skySpan;
-      for (const s of this.skyline) {
-        const bx = s.x + baseOff;
-        if (bx + s.w < -60 || bx > this.width + 60 || !s.windows.length) continue;
-        for (const w of s.windows) {
-          const flick = 0.5 + 0.5 * Math.sin(nowSec * 0.9 + w.ph);
-          ctx.globalAlpha = 0.22 + flick * 0.3;
-          ctx.fillStyle = P.accent;
-          ctx.fillRect(bx + w.x, this.groundY - s.h + w.y, 3, 4.5);
-        }
+
+    // 1b. Gothic Aurora Ribbons in the upper sky
+    ctx.save();
+    for (let band = 0; band < 2; band++) {
+      ctx.globalAlpha = (0.11 + melody * 0.1 + totalKick * 0.08) * (band === 0 ? 1 : 0.7);
+      ctx.strokeStyle = band === 0 ? P.accent : P.crimson;
+      ctx.lineWidth = 18 - band * 6;
+      ctx.beginPath();
+      for (let x = 0; x <= this.width; x += 64) {
+        const ay = 78 + band * 34 + Math.sin(nowSec * 1.1 + x * 0.005 + band * 1.7) * (22 + totalKick * 14);
+        if (x === 0) ctx.moveTo(x, ay);
+        else ctx.lineTo(x, ay);
       }
+      ctx.stroke();
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
 
     // 2. Hills
     ctx.fillStyle = P.hill;
@@ -523,6 +729,30 @@ export class World {
       ctx.fill();
       ctx.stroke();
     }
+
+    // 2b. Distant Gothic Viaduct Arches & Hanging Streetlight Lanterns
+    ctx.save();
+    const archSpan = 260;
+    const archOff = -((this.scrollX * 0.26) % archSpan);
+    ctx.strokeStyle = P.hillDark;
+    ctx.lineWidth = 2.2;
+    for (let ax = archOff - archSpan; ax < this.width + archSpan; ax += archSpan) {
+      const pillarX = ax + archSpan * 0.5;
+      ctx.globalAlpha = 0.42;
+      ctx.beginPath();
+      ctx.moveTo(pillarX - 8, this.groundY);
+      ctx.lineTo(pillarX - 5, this.groundY - 145);
+      ctx.lineTo(pillarX + 5, this.groundY - 145);
+      ctx.lineTo(pillarX + 8, this.groundY);
+      ctx.stroke();
+      const lanternY = this.groundY - 118 + Math.sin(nowSec * 3.0 + ax * 0.02) * 3 - totalKick * 5;
+      ctx.globalAlpha = 0.78;
+      ctx.fillStyle = P.accent;
+      ctx.beginPath();
+      ctx.arc(pillarX, lanternY, 4.5 + totalKick * 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
 
     // 3. Clouds
     ctx.fillStyle = P.cloud;
@@ -577,8 +807,10 @@ export class World {
       ctx.restore();
     }
 
-    // 5a. better18: floating dust motes / fireflies above the road
-    for (const m of this.motes) {
+    // 5a. better18: floating dust motes / fireflies (better19: capped by quality)
+    const moteRender = Math.min(this.motes.length, this.maxMotes);
+    for (let mi = 0; mi < moteRender; mi++) {
+      const m = this.motes[mi];
       const gl = 0.35 + 0.4 * (0.5 + 0.5 * Math.sin(nowSec * 1.6 + m.ph));
       ctx.globalAlpha = gl;
       ctx.fillStyle = P.accent;
@@ -600,9 +832,64 @@ export class World {
       ctx.stroke();
     }
 
-    // 5c. better18: song lyrics floating in the sky
-    if (this.lyrics && this.lyricsEnabled && this.lyrics.ready && fx) {
-      this.lyrics.draw(ctx, fx.t || 0, this.width * 0.5, 116, this.width - 360, P, this.glowEnabled);
+    // 5c. Kinetic Gothic Lyrics Display (prev / active / next + progress)
+    if (this.lyrics && this.lyricsEnabled && fx) {
+      const curT = fx.t || 0;
+      let activeIdx = -1;
+      const lines = this.lyrics.lines || [];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].time <= curT) activeIdx = i;
+        else break;
+      }
+      if (activeIdx >= 0 && lines[activeIdx]) {
+        const prevLine = activeIdx > 0 ? lines[activeIdx - 1].text : '';
+        const currLine = lines[activeIdx].text || '';
+        const nextLine = activeIdx + 1 < lines.length ? lines[activeIdx + 1].text : '';
+        const startT = lines[activeIdx].time || 0;
+        const endT = activeIdx + 1 < lines.length ? lines[activeIdx + 1].time : startT + 4.0;
+        const prog = Math.max(0, Math.min(1, (curT - startT) / Math.max(0.2, endT - startT)));
+        const cx = this.width * 0.5;
+
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        if (prevLine) {
+          ctx.globalAlpha = 0.35;
+          ctx.font = 'italic 600 14px Georgia, serif';
+          ctx.fillStyle = P.ink;
+          ctx.fillText(prevLine, cx, 64);
+        }
+
+        const scale = 1.0 + totalKick * 0.08;
+        ctx.save();
+        ctx.translate(cx, 96);
+        ctx.scale(scale, scale);
+        ctx.globalAlpha = 0.96;
+        ctx.font = '900 24px Georgia, serif';
+        ctx.strokeStyle = P.paper;
+        ctx.lineWidth = 5.0;
+        ctx.strokeText(currLine, 0, 0);
+        ctx.fillStyle = P.accent;
+        ctx.fillText(currLine, 0, 0);
+        ctx.restore();
+
+        const barW = 240;
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = P.hillDark;
+        ctx.fillRect(cx - barW * 0.5, 115, barW, 3);
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = P.accent;
+        ctx.fillRect(cx - barW * 0.5, 115, barW * prog, 3);
+
+        if (nextLine) {
+          ctx.globalAlpha = 0.48;
+          ctx.font = '600 15px Georgia, serif';
+          ctx.fillStyle = P.ink;
+          ctx.fillText(nextLine, cx, 134);
+        }
+        ctx.restore();
+      }
     }
 
     // 6. 3D Road — the floor BREATHES with the lead melody (better18)
@@ -628,8 +915,9 @@ export class World {
     ctx.fill();
 
     // road edges: top edge follows the melody wave, bottom stays straight
-    ctx.strokeStyle = P.ink;
-    ctx.lineWidth = 3.2;
+    // better19: FEVER (combo 20+) turns the edge into a burning crimson line
+    ctx.strokeStyle = this.fever ? P.crimson : P.ink;
+    ctx.lineWidth = this.fever ? 3.8 : 3.2;
     ctx.beginPath();
     for (let i = 0; i <= SEG; i++) {
       const x = segW * i;
@@ -951,6 +1239,26 @@ export class World {
         }
       }
     }
+
+    // 9. Foreground fast parallax Gothic Iron Fence silhouette
+    const fenceGap = 96;
+    const fenceOff = -((this.scrollX * 1.38) % fenceGap);
+    const fenceBaseY = this.height;
+    ctx.save();
+    ctx.globalAlpha = 0.36;
+    ctx.fillStyle = P.ink;
+    ctx.fillRect(0, fenceBaseY - 16, this.width, 4);
+    for (let fx0 = fenceOff; fx0 < this.width + fenceGap; fx0 += fenceGap) {
+      ctx.beginPath();
+      ctx.moveTo(fx0 - 4, fenceBaseY);
+      ctx.lineTo(fx0 - 4, fenceBaseY - 34);
+      ctx.lineTo(fx0, fenceBaseY - 46 - totalKick * 5);
+      ctx.lineTo(fx0 + 4, fenceBaseY - 34);
+      ctx.lineTo(fx0 + 4, fenceBaseY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
 
     ctx.restore();
   }

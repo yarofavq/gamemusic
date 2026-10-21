@@ -108,12 +108,14 @@ void main() {
   vec2 sampleUV = clamp(zoomedUV + jitter, 0.001, 0.999);
 
   vec3 scene;
+  vec3 sceneSum = vec3(0.0);
   if (u_style > 0.5 && u_style < 1.5) {
-    scene = vec3(
-      texture(u_sceneTexture, clamp(sampleUV + caDir, 0.001, 0.999)).r,
-      texture(u_sceneTexture, clamp(sampleUV, 0.001, 0.999)).g,
-      texture(u_sceneTexture, clamp(sampleUV - caDir, 0.001, 0.999)).b
-    );
+    // better19: 3 taps total (was 7) — the same CA samples feed the neon bloom
+    vec3 sL = texture(u_sceneTexture, clamp(sampleUV + caDir, 0.001, 0.999)).rgb;
+    vec3 sC = texture(u_sceneTexture, clamp(sampleUV, 0.001, 0.999)).rgb;
+    vec3 sR = texture(u_sceneTexture, clamp(sampleUV - caDir, 0.001, 0.999)).rgb;
+    scene = vec3(sL.r, sC.g, sR.b);
+    sceneSum = sL + sC + sR;
   } else {
     scene = texture(u_sceneTexture, sampleUV).rgb;
   }
@@ -141,7 +143,7 @@ void main() {
     float kickWave = sin(dist * 28.0 - u_time * 16.0) * totalKick * 0.045;
     surface += u_accent * (totalKick * 0.08) + vec3(kickWave * 0.5);
 
-    float grain = (noise(v_uv * 620.0) - 0.5) * 0.055;
+    float grain = (hash(v_uv * 620.0) - 0.5) * 0.055;
     float fiber = (noise(v_uv * 18.0 + vec2(2.1, 4.3)) - 0.5) * 0.045;
     surface += vec3(grain + fiber);
 
@@ -185,14 +187,10 @@ void main() {
     float redness = smoothstep(0.25, 0.55, scene.r - scene.g);
     vec3 neonColor = mix(u_ink, u_accent, redness);
 
-    // Bloom: bright halo sampled from neighbours
-    vec2 px = vec2(caAmt * 22.0);
-    float glowSum = 0.0;
-    glowSum += max(texture(u_sceneTexture, clamp(sampleUV + vec2(px.x, 0.0), 0.001, 0.999)).rgb, vec3(0.0)).r;
-    glowSum += texture(u_sceneTexture, clamp(sampleUV - vec2(px.x, 0.0), 0.001, 0.999)).r;
-    glowSum += texture(u_sceneTexture, clamp(sampleUV + vec2(0.0, px.y), 0.001, 0.999)).g;
-    glowSum += texture(u_sceneTexture, clamp(sampleUV - vec2(0.0, px.y), 0.001, 0.999)).g;
-    float glow = smoothstep(0.35, 1.4, glowSum * 0.55);
+    // Bloom: bright halo derived from the 3 CA taps already fetched (better19,
+    // was 4 extra texture fetches — the main cause of neon-theme stutter)
+    float glowSum = max(sceneSum.r, max(sceneSum.g, sceneSum.b)) * 0.62;
+    float glow = smoothstep(0.35, 1.35, glowSum);
 
     finalColor = mix(finalColor, neonColor, neonMask * 0.92);
     finalColor += mix(u_ink, u_accent, 0.35) * glow * (0.38 + totalKick * 0.45);
@@ -226,10 +224,9 @@ void main() {
     float inkMask = smoothstep(0.16, 0.62, darkness);
     finalColor = mix(finalColor, strokeColor, inkMask * 0.94);
 
-    // Soft icy bloom
+    // Soft icy bloom — single extra tap (better19, was 2)
     vec2 px2 = vec2(3.0) / u_resolution * 2.2;
-    float b2 = texture(u_sceneTexture, clamp(sampleUV + px2, 0.001, 0.999)).b
-             + texture(u_sceneTexture, clamp(sampleUV - px2, 0.001, 0.999)).b;
+    float b2 = scene.b + texture(u_sceneTexture, clamp(sampleUV + px2, 0.001, 0.999)).b;
     finalColor += vec3(0.55, 0.75, 0.95) * smoothstep(0.8, 1.9, b2) * 0.16;
 
     // Twinkling frost sparkles

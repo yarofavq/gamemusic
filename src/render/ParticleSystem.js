@@ -52,6 +52,7 @@ export class ParticleSystem {
       else if (skin === 'hellhound') type = i % 2 === 0 ? 'bat' : 'spark_orange';
       else if (skin === 'plague') type = i % 2 === 0 ? 'spirit_orb' : 'ink_droplet';
       else if (skin === 'star_weaver') type = i % 2 === 0 ? 'star' : 'spirit_orb';
+      else type = 'spark_orange';
 
       this.push({
         x: x + Math.cos(angle) * 18,
@@ -65,6 +66,38 @@ export class ParticleSystem {
         rotSpeed: 9,
         wingPhase: i,
         type
+      });
+    }
+  }
+
+  emitSnareHit(x, y) {
+    this.push({
+      x,
+      y,
+      vx: 0,
+      vy: 0,
+      life: 0.45,
+      decay: 2.2,
+      size: 10,
+      growth: 650,
+      rotation: 0,
+      rotSpeed: 0,
+      type: 'snare_shock'
+    });
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const speed = 280 + Math.random() * 140;
+      this.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.5,
+        decay: 2.0,
+        size: 7 + Math.random() * 5,
+        rotation: angle,
+        rotSpeed: 4,
+        type: 'pencil_stroke'
       });
     }
   }
@@ -368,15 +401,15 @@ export class ParticleSystem {
       const p = this.particles[i];
       p.x += p.vx * dt;
       p.y += p.vy * dt;
-      if (p.type === 'ring') {
-        p.size += p.growth * dt;
-      } else if (p.type !== 'bat' && p.type !== 'text_label' && p.type !== 'spirit_orb' && p.type !== 'note' && p.type !== 'ground_wave') {
-        p.vy += 400 * dt;
+      if (p.type === 'ring' || p.type === 'snare_shock') {
+        p.size += (p.growth || 400) * dt;
       } else if (p.type === 'bat') {
-        p.wingPhase += dt * 26;
+        p.wingPhase = (p.wingPhase || 0) + dt * 26;
         p.vy -= 45 * dt;
       } else if (p.type === 'ground_wave') {
         p.vy += 140 * dt;
+      } else if (p.type !== 'text_label' && p.type !== 'spirit_orb' && p.type !== 'note' && p.type !== 'star' && p.type !== 'feather' && p.type !== 'petal') {
+        p.vy += 400 * dt;
       }
       p.rotation += p.rotSpeed * dt;
       p.life -= p.decay * dt;
@@ -410,14 +443,14 @@ export class ParticleSystem {
         ctx.moveTo(0, -p.size);
         ctx.lineTo(0, p.size);
         ctx.stroke();
-      } else if (p.type === 'ring') {
-        ctx.strokeStyle = P.accent;
-        ctx.lineWidth = 3.2 * Math.max(0.2, p.life);
-        ctx.setLineDash([12, 8]);
+      } else if (p.type === 'ring' || p.type === 'snare_shock') {
+        ctx.strokeStyle = p.type === 'snare_shock' ? P.crimson : P.accent;
+        ctx.lineWidth = (p.type === 'snare_shock' ? 4.5 : 3.2) * Math.max(0.2, p.life);
+        if (p.type === 'ring') ctx.setLineDash([12, 8]);
         ctx.beginPath();
         ctx.arc(0, 0, p.size, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.setLineDash([]);
+        if (p.type === 'ring') ctx.setLineDash([]);
       } else if (p.type === 'note') {
         ctx.font = `700 ${p.size}px 'Georgia', serif`;
         ctx.textAlign = 'center';
@@ -498,8 +531,13 @@ export class ParticleSystem {
         ctx.quadraticCurveTo(0, 0, 0, -s);
         ctx.stroke();
       } else if (p.type === 'text_label') {
+        const pop = p.life > 0.65 ? 1 + (p.life - 0.65) * 1.6 : 1;
+        ctx.scale(pop, pop);
         ctx.font = `900 ${p.size}px 'Georgia', serif`;
         ctx.textAlign = 'center';
+        ctx.strokeStyle = P.paper;
+        ctx.lineWidth = 4.0;
+        ctx.strokeText(p.text, 0, 0);
         ctx.fillStyle = p.quality === 'PERFECT' ? P.accent : (p.quality === 'GOOD' ? P.ink : P.crimson);
         ctx.fillText(p.text, 0, 0);
       }

@@ -37,6 +37,8 @@ export class Player {
     this.flipProgress = 0;
     this.canAirFlip = false;
     this.flipTrail = [];
+    this.ribbon = [];
+    this.comboLevel = 0;
 
     this.skin = 'pumpkin';
     this.equippedItem = 'none';
@@ -116,6 +118,15 @@ export class Player {
       this.isFlipping = false;
       this.canAirFlip = false;
     }
+
+    this.ribbon.unshift({
+      x: this.x + this.width * 0.3,
+      y: this.y + this.height * 0.42 + Math.sin(this.scarfWave) * 3
+    });
+    if (this.ribbon.length > 16) this.ribbon.pop();
+    for (let i = 0; i < this.ribbon.length; i++) {
+      this.ribbon[i].x -= 390 * dt;
+    }
   }
 
   render(ctx, beatRingProgress = 0, isPlaying = false, groundY = 590, kickPulse = 0) {
@@ -134,6 +145,45 @@ export class Player {
     ctx.beginPath();
     ctx.ellipse(centerX, groundY + 5, 20 * heightRatio, 5 * heightRatio, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Flowing Ribbon Trail (scales with combo)
+    if (isPlaying && this.ribbon.length > 2) {
+      ctx.save();
+      const fever = this.comboLevel >= 15;
+      for (let i = 0; i < this.ribbon.length - 1; i++) {
+        const t = 1 - i / this.ribbon.length;
+        ctx.strokeStyle = fever && i % 2 === 0 ? P.crimson : P.accent;
+        ctx.globalAlpha = t * (fever ? 0.65 : 0.38);
+        ctx.lineWidth = (fever ? 8 : 4.5) * t;
+        ctx.beginPath();
+        ctx.moveTo(this.ribbon[i].x, this.ribbon[i].y);
+        ctx.lineTo(this.ribbon[i + 1].x, this.ribbon[i + 1].y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // Combo Runic Fever Aura
+    if (isPlaying && this.comboLevel >= 10) {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(this.scarfWave * 0.22);
+      const auraR = 36 + kickPulse * 8;
+      ctx.strokeStyle = this.comboLevel >= 25 ? P.crimson : P.accent;
+      ctx.globalAlpha = 0.45 + kickPulse * 0.3;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, auraR, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * auraR, Math.sin(a) * auraR, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = P.accent;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
 
     // Contracting Rhythm Ring synced to Kick
     if (isPlaying) {
@@ -240,6 +290,24 @@ export class Player {
       this.drawPlagueDoctor(ctx, centerX, bottomY);
     } else if (this.skin === 'star_weaver') {
       this.drawStarWeaver(ctx, centerX, bottomY);
+    } else if (this.skin === 'alchemist') {
+      this.drawAlchemist(ctx, centerX, bottomY);
+    } else if (this.skin === 'fallen_seraph') {
+      this.drawFallenSeraph(ctx, centerX, bottomY);
+    } else if (this.skin === 'void_walker') {
+      this.drawVoidWalker(ctx, centerX, bottomY);
+    } else if (this.skin === 'clockwork_knight') {
+      this.drawClockworkKnight(ctx, centerX, bottomY);
+    } else if (this.skin === 'blood_shogun') {
+      this.drawBloodShogun(ctx, centerX, bottomY);
+    } else if (this.skin === 'astral_bard') {
+      this.drawAstralBard(ctx, centerX, bottomY);
+    } else if (this.skin === 'lich_king') {
+      this.drawLichKing(ctx, centerX, bottomY);
+    } else if (this.skin === 'eclipse_avatar') {
+      this.drawEclipseAvatar(ctx, centerX, bottomY);
+    } else {
+      this.drawPumpkinKnight(ctx, centerX, bottomY);
     }
 
     ctx.restore();
@@ -429,6 +497,125 @@ export class Player {
         const sy = Math.sin(a) * 26 - 4;
         drawStar(ctx, sx, sy, 4 + kickPulse * 2, '#ffd76a');
       }
+    } else if (this.equippedItem === 'chrono_gears') {
+      for (let g = 0; g < 2; g++) {
+        ctx.save();
+        const gx = g === 0 ? -26 : 26;
+        const gy = -12 + g * 10;
+        ctx.translate(gx, gy);
+        ctx.rotate((g === 0 ? 1 : -1) * this.scarfWave * 0.35);
+        ctx.strokeStyle = P.accent;
+        ctx.lineWidth = 2.2;
+        const r = 11 + kickPulse * 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        for (let t = 0; t < 8; t++) {
+          const a = (t / 8) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * (r - 2), Math.sin(a) * (r - 2));
+          ctx.lineTo(Math.cos(a) * (r + 4), Math.sin(a) * (r + 4));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    } else if (this.equippedItem === 'void_eye') {
+      const ey = -44 - kickPulse * 5 + Math.sin(this.scarfWave * 0.8) * 3;
+      ctx.strokeStyle = P.ink;
+      ctx.fillStyle = P.pale;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-16, ey);
+      ctx.quadraticCurveTo(0, ey - 11 - kickPulse * 4, 16, ey);
+      ctx.quadraticCurveTo(0, ey + 11 + kickPulse * 4, -16, ey);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = P.crimson;
+      ctx.beginPath();
+      ctx.arc(0, ey, 4.5 + kickPulse * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = P.ink;
+      ctx.fillRect(-1, ey - 3, 2, 6);
+    } else if (this.equippedItem === 'lightning_coil') {
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 2.2;
+      for (let b = 0; b < 3; b++) {
+        const a = this.scarfWave * 1.4 + b * 2.1;
+        const x1 = Math.cos(a) * 18;
+        const y1 = Math.sin(a) * 18;
+        const x2 = Math.cos(a + 0.5) * (34 + kickPulse * 10);
+        const y2 = Math.sin(a + 0.5) * (34 + kickPulse * 10);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo((x1 + x2) * 0.5 + (b - 1) * 6, (y1 + y2) * 0.5 - 5);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+    } else if (this.equippedItem === 'rose_whirlwind') {
+      for (let k = 0; k < 4; k++) {
+        const a = this.scarfWave * 0.65 + k * (Math.PI / 2);
+        const rx = Math.cos(a) * 36;
+        const ry = Math.sin(a) * 22 - 4;
+        ctx.fillStyle = k % 2 === 0 ? P.crimson : P.accent;
+        ctx.strokeStyle = P.ink;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 5 + kickPulse * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(rx, ry, 2.4, 0, Math.PI * 1.5);
+        ctx.stroke();
+      }
+    } else if (this.equippedItem === 'seraph_halo') {
+      const hy = -42 - kickPulse * 4;
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.ellipse(0, hy, 18 + kickPulse * 3, 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let r = -3; r <= 3; r++) {
+        const rx = r * 5;
+        ctx.beginPath();
+        ctx.moveTo(rx, hy - 5);
+        ctx.lineTo(rx * 1.3, hy - 13 - (3 - Math.abs(r)) * 2 - kickPulse * 4);
+        ctx.stroke();
+      }
+    } else if (this.equippedItem === 'phantom_blades') {
+      for (let b = 0; b < 4; b++) {
+        const a = this.scarfWave * 0.45 + b * (Math.PI / 2);
+        const bx = Math.cos(a) * (36 + kickPulse * 6);
+        const by = Math.sin(a) * 24 - 6;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(a + Math.PI / 2);
+        ctx.fillStyle = P.pale;
+        ctx.strokeStyle = P.accent;
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(0, -11);
+        ctx.lineTo(3, 4);
+        ctx.lineTo(-3, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-5, 4);
+        ctx.lineTo(5, 4);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (this.equippedItem === 'eclipse_crown') {
+      const ey = -45 - kickPulse * 4;
+      ctx.fillStyle = P.ink;
+      ctx.strokeStyle = P.accent;
+      ctx.lineWidth = 2.8 + kickPulse * 2;
+      ctx.beginPath();
+      ctx.arc(0, ey, 9 + kickPulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      drawStar(ctx, 0, ey, 4.5, P.crimson);
     }
 
     ctx.restore();
@@ -1220,6 +1407,238 @@ export class Player {
     ctx.moveTo(cx + 2, by - 48);
     ctx.lineTo(cx + 6, by - 48);
     ctx.stroke();
+  }
+
+  drawAlchemist(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, by - 40);
+    ctx.lineTo(cx - 15, by - 4);
+    ctx.lineTo(cx + 15, by - 4);
+    ctx.lineTo(cx + 12, by - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.arc(cx - 6, by - 22, 4, 0, Math.PI * 2);
+    ctx.arc(cx + 6, by - 18, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.bone;
+    ctx.beginPath();
+    ctx.arc(cx, by - 46, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.crimson;
+    ctx.beginPath();
+    ctx.arc(cx - 4, by - 46, 4, 0, Math.PI * 2);
+    ctx.arc(cx + 5, by - 46, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  drawFallenSeraph(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.2;
+    const wingSpread = 22 + Math.sin(this.scarfWave) * 5;
+    ctx.fillStyle = P.pale;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, by - 32);
+      ctx.lineTo(cx + dir * wingSpread, by - 48);
+      ctx.lineTo(cx + dir * (wingSpread * 0.75), by - 18);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.fillStyle = P.bone;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, by - 40);
+    ctx.lineTo(cx - 13, by);
+    ctx.lineTo(cx + 13, by);
+    ctx.lineTo(cx + 10, by - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.ellipse(cx, by - 61, 12, 3.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = P.crimson;
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawVoidWalker(ctx, cx, by) {
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.ink;
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, by - 38);
+    ctx.lineTo(cx - 16, by - 2);
+    ctx.lineTo(cx, by - 10);
+    ctx.lineTo(cx + 16, by - 2);
+    ctx.lineTo(cx + 11, by - 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, by - 47, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawStar(ctx, cx, by - 47, 7, P.crimson);
+  }
+
+  drawClockworkKnight(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.5;
+    ctx.fillStyle = P.metal;
+    ctx.fillRect(cx - 11, by - 36, 22, 24);
+    ctx.strokeRect(cx - 11, by - 36, 22, 24);
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.arc(cx, by - 24, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.stone;
+    ctx.fillRect(cx - 10, by - 54, 20, 17);
+    ctx.strokeRect(cx - 10, by - 54, 20, 17);
+    ctx.fillStyle = P.accent;
+    ctx.fillRect(cx - 7, by - 48, 14, 3.5);
+    const legOffset = Math.sin(this.runFrame) * 8;
+    ctx.beginPath();
+    ctx.moveTo(cx - 5, by - 12);
+    ctx.lineTo(cx - 5 - legOffset, by);
+    ctx.moveTo(cx + 5, by - 12);
+    ctx.lineTo(cx + 5 + legOffset, by);
+    ctx.stroke();
+  }
+
+  drawBloodShogun(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.5;
+    ctx.fillStyle = P.cloth;
+    ctx.beginPath();
+    ctx.moveTo(cx - 13, by - 38);
+    ctx.lineTo(cx - 16, by - 4);
+    ctx.lineTo(cx + 16, by - 4);
+    ctx.lineTo(cx + 13, by - 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.crimson;
+    ctx.beginPath();
+    ctx.arc(cx, by - 46, 10.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 2.8;
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, by - 52);
+    ctx.lineTo(cx - 16, by - 64);
+    ctx.moveTo(cx + 8, by - 52);
+    ctx.lineTo(cx + 16, by - 64);
+    ctx.stroke();
+    ctx.fillStyle = P.pale;
+    ctx.fillRect(cx - 6, by - 48, 4, 3);
+    ctx.fillRect(cx + 2, by - 48, 4, 3);
+  }
+
+  drawAstralBard(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.4;
+    ctx.fillStyle = P.cloth;
+    ctx.beginPath();
+    ctx.moveTo(cx - 11, by - 38);
+    ctx.lineTo(cx - 15, by - 2);
+    ctx.lineTo(cx + 15, by - 2);
+    ctx.lineTo(cx + 11, by - 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.pale;
+    ctx.beginPath();
+    ctx.arc(cx, by - 46, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.moveTo(cx - 18, by - 52);
+    ctx.lineTo(cx + 18, by - 54);
+    ctx.lineTo(cx, by - 62);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    drawStar(ctx, cx + 10, by - 62, 5, P.crimson);
+  }
+
+  drawLichKing(ctx, cx, by) {
+    ctx.strokeStyle = P.ink;
+    ctx.lineWidth = 2.5;
+    ctx.fillStyle = P.cloth;
+    ctx.beginPath();
+    ctx.moveTo(cx - 13, by - 40);
+    ctx.lineTo(cx - 17, by);
+    ctx.lineTo(cx + 17, by);
+    ctx.lineTo(cx + 13, by - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.bone;
+    ctx.beginPath();
+    ctx.arc(cx, by - 46, 10.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.accent;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, by - 54);
+    ctx.lineTo(cx - 10, by - 66);
+    ctx.lineTo(cx - 4, by - 58);
+    ctx.lineTo(cx, by - 68);
+    ctx.lineTo(cx + 4, by - 58);
+    ctx.lineTo(cx + 10, by - 66);
+    ctx.lineTo(cx + 10, by - 54);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = P.crimson;
+    ctx.fillRect(cx - 6, by - 48, 3.5, 3.5);
+    ctx.fillRect(cx + 2.5, by - 48, 3.5, 3.5);
+  }
+
+  drawEclipseAvatar(ctx, cx, by) {
+    ctx.strokeStyle = P.accent;
+    ctx.lineWidth = 2.6;
+    ctx.fillStyle = P.ink;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, by - 38);
+    ctx.lineTo(cx - 15, by - 2);
+    ctx.lineTo(cx + 15, by - 2);
+    ctx.lineTo(cx + 10, by - 38);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, by - 48, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const a = this.scarfWave * 0.25 + (i / 8) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * 12, by - 48 + Math.sin(a) * 12);
+      ctx.lineTo(cx + Math.cos(a) * 18, by - 48 + Math.sin(a) * 18);
+      ctx.stroke();
+    }
+    drawStar(ctx, cx, by - 48, 5, P.pale);
   }
 
   renderGhost(ctx, remoteY, remoteFlipping, remoteCombo = 0) {
