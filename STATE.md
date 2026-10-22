@@ -77,3 +77,27 @@ peer_left при спектейте → fadeToMenu. triggerTrackComplete: guard
 _lastScoreT в конструкторе/reset. BeatDetector: _endClamp (onended → dur+0.05,
 play/stop → 0) — elapsed не снапается в 0 после конца буфера (мир не
 телепортируется во время blast).
+
+## better21
+Краш прыжка: у raven глаз рисовался радиусом 2.6+(squash-1)*12 — при прыжке
+squash=0.66 → ОТРИЦАТЕЛЬНЫЙ радиус → ctx.arc кидал IndexSizeError → кадр умирал
+(«при прыжке всё ломается»). Кламп + drawStar(Math.max(0.4,r)) для star_weaver.
+Диспетчер скинов заменён на таблицу SKIN_DRAW + drawSkinSafe (try/catch на
+каждый скин, fallback pumpkin); renderCosmeticItem тоже в try/catch; в frame()
+world.render и слой актёров изолированы — ни одна отрисовка не может убить кадр.
+jump-хендлер обёрнут (jumpInner). МОБИЛЬНЫЙ РЕЖИМ: IS_MOBILE (pointer:coarse +
+UA); первый запуск без qualityChosen → quality='low' (частицы 170, glow off,
+stars 45); dpr cap 1.3 (был 2.0); renderScale старт 0.8; губернатор агрессивнее
+(down>19.5мс, up<15.5мс, floor 0.5); выбор качества вручную ставит
+qualityChosen=true. ГРОМКОСТЬ: settings.volume (debounce 350мс), восстановление
+при старте (оба слайдера + audio + menuMusic). КРАСИВЕЙШИЙ ВИЗУАЛ
+(#btn-toggle-ultra, settings.ultra): P.glow=true+glowBlur16 на ЛЮБОЙ теме
+(applyUltra зовётся после applyTheme и в setTheme), World tier 'ultra'
+(stars 150, motes 40, bats 12, comets 5, pillars 42, liveStars 24 + достройка
+пулов), частицы ×1.5 (low 260/mid 450/high 630), ribbon 26, uniform u_ultra →
+шейдерный beauty-pass (4 доп. тапа bloom, CA ×1.7, свечение краёв туши,
+дышащая виньетка, глиттер-пыль), губернатор ultra: down>30мс, floor 0.85.
+Скроллбары: #start-modal и #settings-panel — тонкие готические (webkit+FF),
+sticky-затемнения can-up/can-down (setupMenuScrollbars + ResizeObserver),
+switchTab сбрасывает scrollTop. Мобайл-CSS: компактный модал, viewport
+user-scalable=no, touch-action manipulation, beat-indicator ниже на тач.

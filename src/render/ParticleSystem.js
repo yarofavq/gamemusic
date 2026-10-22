@@ -3,6 +3,9 @@ export class ParticleSystem {
   constructor() {
     this.particles = [];
     this.maxParticles = 420;
+    // better21: КРАСИВЕЙШИЙ ВИЗУАЛ — ultra multiplies the active quality tier
+    this.ultra = false;
+    this._qualityBase = 420;
   }
 
   push(p) {
@@ -217,7 +220,15 @@ export class ParticleSystem {
   }
 
   setQuality(level) {
-    this.maxParticles = level === 'low' ? 170 : level === 'mid' ? 300 : 420;
+    // better21: remember the tier so setUltra can re-apply the multiplier
+    this._qualityBase = level === 'low' ? 170 : level === 'mid' ? 300 : 420;
+    this.maxParticles = this.ultra ? Math.round(this._qualityBase * 1.5) : this._qualityBase;
+  }
+
+  /** better21: max-beauty mode — ~50% more particles on every tier. */
+  setUltra(on) {
+    this.ultra = !!on;
+    this.maxParticles = on ? Math.round(this._qualityBase * 1.5) : this._qualityBase;
   }
 
   /**

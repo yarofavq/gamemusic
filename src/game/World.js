@@ -145,14 +145,35 @@ export class World {
    * weaker devices smooth while baking the heavy static layers.
    */
   setQuality(level) {
-    this.quality = level === 'low' ? 'low' : level === 'mid' ? 'mid' : 'high';
-    const q = this.quality;
-    this.maxStars = q === 'low' ? 45 : q === 'mid' ? 80 : 110;
-    this.maxMotes = q === 'low' ? 10 : q === 'mid' ? 18 : 26;
-    this.maxBats = q === 'low' ? 4 : q === 'mid' ? 6 : 9;
-    this.maxComets = q === 'low' ? 1 : q === 'mid' ? 2 : 3;
-    this.pillarCount = q === 'low' ? 14 : q === 'mid' ? 22 : 32;
-    this.liveStars = Math.min(16, this.maxStars);
+    // better21: new 'ultra' tier = КРАСИВЕЙШИЙ ВИЗУАЛ scenery density
+    const q = (this.quality = level === 'low' ? 'low' : level === 'mid' ? 'mid' : level === 'ultra' ? 'ultra' : 'high');
+    this.maxStars = q === 'low' ? 45 : q === 'mid' ? 80 : q === 'ultra' ? 150 : 110;
+    this.maxMotes = q === 'low' ? 10 : q === 'mid' ? 18 : q === 'ultra' ? 40 : 26;
+    this.maxBats = q === 'low' ? 4 : q === 'mid' ? 6 : q === 'ultra' ? 12 : 9;
+    this.maxComets = q === 'low' ? 1 : q === 'mid' ? 2 : q === 'ultra' ? 5 : 3;
+    this.pillarCount = q === 'low' ? 14 : q === 'mid' ? 22 : q === 'ultra' ? 42 : 32;
+    this.liveStars = q === 'ultra' ? 24 : Math.min(16, this.maxStars);
+    if (q === 'ultra') {
+      // top up the scenery pools so the ultra tier is genuinely denser
+      while (this.stars.length < this.maxStars) {
+        this.stars.push({
+          x: Math.random() * this.width,
+          y: Math.random() * this.height * 0.5,
+          r: 0.5 + Math.random() * 1.6,
+          tw: Math.random() * Math.PI * 2,
+          sp: 0.8 + Math.random() * 2.4
+        });
+      }
+      while (this.motes.length < this.maxMotes) {
+        this.motes.push({
+          x: Math.random() * this.width,
+          y: this.groundY - Math.random() * 280,
+          r: 1 + Math.random() * 1.8,
+          ph: Math.random() * Math.PI * 2,
+          sp: 6 + Math.random() * 14
+        });
+      }
+    }
     this._layersDirty = true;
   }
 

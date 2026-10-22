@@ -15,6 +15,7 @@ uniform float u_finale;   // 0..1 end-of-track crescendo
 uniform vec3 u_accent;
 uniform vec3 u_ink;
 uniform vec3 u_crimson;
+uniform float u_ultra;   // better21: КРАСИВЕЙШИЙ ВИЗУАЛ master pass (0/1)
 
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -94,10 +95,11 @@ void main() {
 
   // Chromatic aberration on strong kicks (neon uses the widest split)
   float caAmt = (u_style > 0.5 && u_style < 1.5 ? 0.005 : 0.0022) * (0.35 + totalKick);
+  caAmt *= (u_ultra > 0.5 ? 1.7 : 1.0); // ultra: juicier prism split
   vec2 caDir = normalize(toCenter + vec2(0.0001)) * caAmt;
 
   // Boiling line displacement (ink style strongest, finale accelerates it)
-  float boilFps = 11.0 + finale * 14.0;
+  float boilFps = 11.0 + finale * 14.0 + (u_ultra > 0.5 ? 3.0 : 0.0);
   float t = floor(u_time * boilFps) / boilFps;
   float jitterAmt = (u_style < 0.5 ? 0.0019 : 0.0011) + totalKick * (u_style < 0.5 ? 0.0024 : 0.0016);
   vec2 jitter = vec2(
@@ -252,6 +254,33 @@ void main() {
     float whiteout = smoothstep(0.87, 1.0, finale);
     vec3 finWhite = mix(vec3(1.0), u_accent, 0.22);
     finalColor = mix(finalColor, finWhite, whiteout * (0.78 + 0.22 * sin(u_time * 14.0)));
+  }
+
+  // ---------------- better21: КРАСИВЕЙШИЙ ВИЗУАЛ ----------------
+  // A uniform-gated beauty pass: the GPU skips the whole branch when off.
+  if (u_ultra > 0.5) {
+    // Wide soft bloom ring — 4 extra taps, richer halos on bright ink
+    vec2 pxU = vec2(3.2) / u_resolution;
+    vec3 bl = texture(u_sceneTexture, clamp(sampleUV + vec2(pxU.x, 0.0), 0.001, 0.999)).rgb
+            + texture(u_sceneTexture, clamp(sampleUV - vec2(pxU.x, 0.0), 0.001, 0.999)).rgb
+            + texture(u_sceneTexture, clamp(sampleUV + vec2(0.0, pxU.y), 0.001, 0.999)).rgb
+            + texture(u_sceneTexture, clamp(sampleUV - vec2(0.0, pxU.y), 0.001, 0.999)).rgb;
+    float blVal = max(bl.r, max(bl.g, bl.b)) * 0.25;
+    finalColor += strokeColor * smoothstep(0.42, 1.25, blVal) * (0.16 + totalKick * 0.22);
+
+    // Engraved light: accent halo hugging the dark ink strokes
+    float edge = smoothstep(0.10, 0.30, darkness) * (1.0 - smoothstep(0.30, 0.62, darkness));
+    finalColor += u_accent * edge * (0.05 + totalKick * 0.11);
+
+    // Slow breathing vignette — the whole scene inhales with the music
+    float breathe = 0.5 + 0.5 * sin(u_time * 1.4);
+    float vig2 = smoothstep(0.22, 0.92, dist);
+    finalColor = mix(finalColor, deep * (0.75 + 0.2 * breathe), vig2 * 0.20);
+
+    // Glitter dust: tiny accent sparkles popping on the beat
+    vec2 cell2 = floor(v_uv * vec2(190.0, 107.0));
+    float tw2 = hash(cell2 + floor(u_time * 3.0));
+    finalColor += u_accent * step(0.9975, tw2) * (0.35 + totalKick * 0.6);
   }
 
   fragColor = vec4(finalColor, 1.0);

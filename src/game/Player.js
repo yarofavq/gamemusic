@@ -2,7 +2,38 @@ import { P } from '../render/Theme.js';
 
 // Skins whose flowing cape / flip ring is drawn in blood-crimson instead of accent
 const CRIMSON_SKINS = ['witch', 'reaper', 'vampire', 'raven', 'plague', 'hellhound'];
+
+// better21: skin id -> draw method name (fault-isolated dispatch)
+const SKIN_DRAW = {
+  pumpkin: 'drawPumpkinKnight',
+  ghost: 'drawSheetGhost',
+  skeleton: 'drawSkeleton',
+  witch: 'drawWitch',
+  reaper: 'drawReaper',
+  vampire: 'drawVampire',
+  mummy: 'drawMummy',
+  franken: 'drawFranken',
+  frost_maiden: 'drawFrostMaiden',
+  neon_ronin: 'drawNeonRonin',
+  raven: 'drawRavenHerald',
+  doll: 'drawPorcelainDoll',
+  candle_monk: 'drawCandleMonk',
+  hellhound: 'drawHellhound',
+  plague: 'drawPlagueDoctor',
+  star_weaver: 'drawStarWeaver',
+  alchemist: 'drawAlchemist',
+  fallen_seraph: 'drawFallenSeraph',
+  void_walker: 'drawVoidWalker',
+  clockwork_knight: 'drawClockworkKnight',
+  blood_shogun: 'drawBloodShogun',
+  astral_bard: 'drawAstralBard',
+  lich_king: 'drawLichKing',
+  eclipse_avatar: 'drawEclipseAvatar'
+};
 export function drawStar(ctx, x, y, r, color) {
+  // better21 FIX: a negative/zero radius must never reach the path — the
+  // star-weaver crown uses (squash-1)*30 which dips below 0 right after a jump.
+  r = Math.max(0.4, r);
   ctx.fillStyle = color;
   ctx.beginPath();
   for (let i = 0; i < 10; i++) {
@@ -123,7 +154,8 @@ export class Player {
       x: this.x + this.width * 0.3,
       y: this.y + this.height * 0.42 + Math.sin(this.scarfWave) * 3
     });
-    if (this.ribbon.length > 16) this.ribbon.pop();
+    // better21: КРАСИВЕЙШИЙ ВИЗУАЛ stretches the flowing ribbon trail
+    if (this.ribbon.length > (P.ultra ? 26 : 16)) this.ribbon.pop();
     for (let i = 0; i < this.ribbon.length; i++) {
       this.ribbon[i].x -= 390 * dt;
     }
@@ -208,7 +240,7 @@ export class Player {
       ctx.rotate(this.flipProgress * Math.PI * 2);
     }
     ctx.scale(this.squash, this.stretch);
-    this.renderCosmeticItem(ctx, 0, 0, kickPulse);
+    try { this.renderCosmeticItem(ctx, 0, 0, kickPulse); } catch (_) {}
     ctx.restore();
 
     // Motion afterimages during mid-air flip
@@ -258,59 +290,22 @@ export class Player {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    if (this.skin === 'pumpkin') {
-      this.drawPumpkinKnight(ctx, centerX, bottomY);
-    } else if (this.skin === 'ghost') {
-      this.drawSheetGhost(ctx, centerX, bottomY);
-    } else if (this.skin === 'skeleton') {
-      this.drawSkeleton(ctx, centerX, bottomY);
-    } else if (this.skin === 'witch') {
-      this.drawWitch(ctx, centerX, bottomY);
-    } else if (this.skin === 'reaper') {
-      this.drawReaper(ctx, centerX, bottomY);
-    } else if (this.skin === 'vampire') {
-      this.drawVampire(ctx, centerX, bottomY);
-    } else if (this.skin === 'mummy') {
-      this.drawMummy(ctx, centerX, bottomY);
-    } else if (this.skin === 'franken') {
-      this.drawFranken(ctx, centerX, bottomY);
-    } else if (this.skin === 'frost_maiden') {
-      this.drawFrostMaiden(ctx, centerX, bottomY);
-    } else if (this.skin === 'neon_ronin') {
-      this.drawNeonRonin(ctx, centerX, bottomY);
-    } else if (this.skin === 'raven') {
-      this.drawRavenHerald(ctx, centerX, bottomY);
-    } else if (this.skin === 'doll') {
-      this.drawPorcelainDoll(ctx, centerX, bottomY);
-    } else if (this.skin === 'candle_monk') {
-      this.drawCandleMonk(ctx, centerX, bottomY);
-    } else if (this.skin === 'hellhound') {
-      this.drawHellhound(ctx, centerX, bottomY);
-    } else if (this.skin === 'plague') {
-      this.drawPlagueDoctor(ctx, centerX, bottomY);
-    } else if (this.skin === 'star_weaver') {
-      this.drawStarWeaver(ctx, centerX, bottomY);
-    } else if (this.skin === 'alchemist') {
-      this.drawAlchemist(ctx, centerX, bottomY);
-    } else if (this.skin === 'fallen_seraph') {
-      this.drawFallenSeraph(ctx, centerX, bottomY);
-    } else if (this.skin === 'void_walker') {
-      this.drawVoidWalker(ctx, centerX, bottomY);
-    } else if (this.skin === 'clockwork_knight') {
-      this.drawClockworkKnight(ctx, centerX, bottomY);
-    } else if (this.skin === 'blood_shogun') {
-      this.drawBloodShogun(ctx, centerX, bottomY);
-    } else if (this.skin === 'astral_bard') {
-      this.drawAstralBard(ctx, centerX, bottomY);
-    } else if (this.skin === 'lich_king') {
-      this.drawLichKing(ctx, centerX, bottomY);
-    } else if (this.skin === 'eclipse_avatar') {
-      this.drawEclipseAvatar(ctx, centerX, bottomY);
-    } else {
-      this.drawPumpkinKnight(ctx, centerX, bottomY);
-    }
+    // better21: skin dispatch is now fault-isolated — a throw inside ANY
+    // skin's draw code skips just that silhouette instead of killing the
+    // whole frame (frozen picture with music playing).
+    this.drawSkinSafe(ctx, centerX, bottomY);
 
     ctx.restore();
+  }
+
+  /** better21: fault-isolated skin rendering (see SKIN_DRAW map). */
+  drawSkinSafe(ctx, cx, by) {
+    try {
+      const fn = SKIN_DRAW[this.skin] || 'drawPumpkinKnight';
+      this[fn](ctx, cx, by);
+    } catch (_) {
+      try { this.drawPumpkinKnight(ctx, cx, by); } catch (_) {}
+    }
   }
 
   renderCosmeticItem(ctx, ox, oy, kickPulse) {
@@ -1167,10 +1162,13 @@ export class Player {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-    // crimson eye
+    // crimson eye — better21 FIX: (squash-1)*12 goes NEGATIVE right after a
+    // jump (squash dips to 0.66) and ctx.arc(negative radius) THROWS
+    // IndexSizeError, killing the frame -> the picture froze on every jump
+    // with this skin. Clamped, and the whole skin draw is try/caught below.
     ctx.fillStyle = P.crimson;
     ctx.beginPath();
-    ctx.arc(cx + 4, by - 49, 2.6 + (this.squash - 1) * 12, 0, Math.PI * 2);
+    ctx.arc(cx + 4, by - 49, Math.max(0.5, 2.6 + (this.squash - 1) * 12), 0, Math.PI * 2);
     ctx.fill();
   }
 

@@ -1241,3 +1241,146 @@ input[type="range"]::-webkit-slider-thumb {
   width: 100%;
   text-align: center;
 }
+
+/* ================= better21: own scrollbars & scroll fades ================= */
+
+/* Any menu surface that outgrows the screen gets a hand-drawn gothic
+   slider instead of the browser default. */
+#start-modal,
+#settings-panel {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+#start-modal::-webkit-scrollbar,
+#settings-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+#start-modal::-webkit-scrollbar-track,
+#settings-panel::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid var(--panel-brd);
+  opacity: 0.5;
+}
+
+#start-modal::-webkit-scrollbar-thumb,
+#settings-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--accent), var(--accent2));
+  border: 2px solid var(--panel-brd);
+  border-radius: max(4px, calc(var(--radius) * 0.5));
+  box-shadow: 2px 2px 0px var(--shadow);
+}
+
+#start-modal::-webkit-scrollbar-thumb:hover,
+#settings-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--accent2);
+  box-shadow: 2px 2px 0px var(--accent), var(--glow);
+}
+
+#start-modal::-webkit-scrollbar-corner,
+#settings-panel::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* settings panel can also overflow on small screens — let it scroll */
+#settings-panel {
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+/* Fade shadows: appear only when there is hidden content above/below.
+   The sticky zero-height pseudo elements ride the scrollport edges. */
+#start-modal::before,
+#settings-panel::before,
+#start-modal::after,
+#settings-panel::after {
+  content: '';
+  position: sticky;
+  display: block;
+  height: 0;
+  z-index: 5;
+  pointer-events: none;
+  transition: box-shadow 0.25s ease;
+}
+
+#start-modal::before,
+#settings-panel::before {
+  top: 0;
+}
+
+#start-modal::after,
+#settings-panel::after {
+  bottom: 0;
+}
+
+#start-modal.can-up::before,
+#settings-panel.can-up::before {
+  box-shadow: 0 14px 16px -10px rgba(0, 0, 0, 0.55);
+}
+
+#start-modal.can-down::after,
+#settings-panel.can-down::after {
+  box-shadow: 0 -14px 16px -10px rgba(0, 0, 0, 0.55);
+}
+
+/* ================= better21: КРАСИВЕЙШИЙ ВИЗУАЛ toggle ================= */
+
+#btn-toggle-ultra {
+  background: linear-gradient(135deg, var(--card), var(--card-active));
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  font-weight: bold;
+  letter-spacing: 1px;
+  box-shadow: 3px 3px 0px var(--shadow), var(--glow);
+}
+
+#btn-toggle-ultra:hover {
+  box-shadow: 4px 4px 0px var(--accent), var(--glow);
+}
+
+.ultra-hint {
+  color: var(--accent-dark);
+  opacity: 0.85;
+}
+
+/* ================= better21: phones — compact & calm ================= */
+
+/* touch devices: kill double-tap zoom delays on the game surfaces */
+#canvas-container,
+#ui-layer {
+  touch-action: manipulation;
+}
+
+@media (pointer: coarse) {
+  #start-modal {
+    padding: 18px 16px;
+    max-height: 94vh;
+  }
+
+  #start-modal .modal-title {
+    font-size: 21px;
+  }
+
+  #start-modal .modal-subtitle {
+    font-size: 10px;
+    margin-bottom: 8px;
+  }
+
+  .skin-grid {
+    gap: 6px;
+  }
+
+  .menu-tabs .tab-btn {
+    padding: 6px 4px;
+    font-size: 10px;
+  }
+
+  /* the beat indicator sits where a thumb rests — move it up a bit */
+  #beat-indicator {
+    bottom: auto;
+    top: 64px;
+  }
+}

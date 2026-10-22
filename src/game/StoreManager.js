@@ -13,7 +13,10 @@ export class StoreManager {
         quality: 'high',
         shake: true,
         titleCollapsed: false,
-        lyrics: true
+        lyrics: true,
+        volume: 75,
+        ultra: false,
+        qualityChosen: false
       }
     };
 

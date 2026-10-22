@@ -23,6 +23,12 @@ const VIRTUAL_WIDTH = 1280;
 const VIRTUAL_HEIGHT = 720;
 const MP_START_DELAY = 3600;
 
+// better21: rough mobile detection — coarse pointer (phones/tablets/touch)
+// plus a UA fallback. Drives the whole "phones must not lag" preset.
+const IS_MOBILE =
+  (typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches) ||
+  (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1 && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''));
+
 class GameApp {
   constructor() {
     this.glCanvas = document.getElementById('gl-canvas');
@@ -52,6 +58,13 @@ class GameApp {
     this.settings = this.store.data.settings;
     this.themeId = THEMES[this.settings.theme] ? this.settings.theme : 'ink';
     applyTheme(this.themeId);
+
+    // better21: phones start on the LIGHT preset until the user explicitly
+    // picks a quality in the settings (qualityChosen stays false meanwhile)
+    if (IS_MOBILE && !this.settings.qualityChosen) {
+      this.settings.quality = 'low';
+    }
+
     this.particles.setQuality(this.settings.quality);
     this.world.setQuality(this.settings.quality);
     this.world.shakeEnabled = !!this.settings.shake;
@@ -59,6 +72,11 @@ class GameApp {
     this.world.lyricsEnabled = this.settings.lyrics !== false;
     const lyricsBtn = document.getElementById('btn-toggle-lyrics');
     if (lyricsBtn) lyricsBtn.textContent = this.world.lyricsEnabled ? 'ВКЛ' : 'ВЫКЛ';
+
+    // better21: КРАСИВЕЙШИЙ ВИЗУАЛ — optional maximum-beauty layer applied
+    // ON TOP of the theme (glow + dense scenery + shader beauty pass)
+    this.ultra = !!this.settings.ultra;
+    this.applyUltra();
 
     // better19: cached hot DOM refs — the loop runs 60fps, no repeated lookups
     this.dom = {
@@ -77,7 +95,8 @@ class GameApp {
     // better19: adaptive resolution governor — keeps 60fps on weak GPUs by
     // scaling the internal render buffers (CSS keeps the canvas fullscreen).
     // Fixes the heavy-theme stutter regardless of device/GPU.
-    this.renderScale = 1.0;
+    // better21: phones boot at 0.8 — mobile GPUs need the head start.
+    this.renderScale = IS_MOBILE ? 0.8 : 1.0;
     this._frameAvg = 16.7;
     this._frameTimer = 0;
     this._scaleCooldown = 0;
@@ -144,6 +163,7 @@ class GameApp {
     this.renderThemeCards();
     this.applyTitleCollapse();
     this.setupMenuTabs();
+    this.setupMenuScrollbars();
     this.setupEvents();
     this.setupNet();
 
@@ -166,11 +186,15 @@ class GameApp {
     this.uInk = this.glCtx.gl.getUniformLocation(this.program, 'u_ink');
     this.uCrimson = this.glCtx.gl.getUniformLocation(this.program, 'u_crimson');
     this.uSceneTexture = this.glCtx.gl.getUniformLocation(this.program, 'u_sceneTexture');
+    this.uUltra = this.glCtx.gl.getUniformLocation(this.program, 'u_ultra');
   }
 
   resize() {
     // better19: renderScale = adaptive resolution factor (1.0 -> 0.6)
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.0) * (this.renderScale || 1);
+    // better21: phones get a hard DPR cap — retina 2x buffers mean 4x the
+    // pixels for BOTH canvases every frame, the #1 source of mobile lag
+    const dprCap = IS_MOBILE ? 1.3 : 2.0;
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap) * (this.renderScale || 1);
     const w = Math.max(320, Math.floor(window.innerWidth * dpr));
     const h = Math.max(240, Math.floor(window.innerHeight * dpr));
 
@@ -259,9 +283,53 @@ class GameApp {
   setTheme(id) {
     this.themeId = id;
     applyTheme(id);
+    this.applyUltra(); // better21: applyTheme resets glow — re-light it for ultra
     this.world.markThemeChanged(); // better19: re-bake skyline/stars for the new palette
     this.store.setSetting('theme', id);
     this.renderThemeCards();
+  }
+
+  /**
+   * better21: КРАСИВЕЙШИЙ ВИЗУАЛ — one master switch that upgrades every
+   * layer of the picture: canvas glow on ALL themes, denser scenery,
+   * longer trails, +50% particles and the shader beauty pass.
+   */
+  applyUltra() {
+    const on = this.ultra;
+    P.glow = on;                 // Player/World/particles read this directly
+    P.glowBlur = on ? 16 : 0;
+    P.ultra = on;                // extra-detail flag for Player ribbon etc.
+    this.world.glowEnabled = on || this.settings.quality !== 'low';
+    this.world.setQuality(on ? 'ultra' : this.settings.quality);
+    this.particles.setUltra(on);
+    if (on) {
+      // beauty mode wants full resolution — undo any governor downscale
+      this.renderScale = Math.max(this.renderScale || 1, 1.0);
+      this.resize();
+    }
+  }
+
+  /**
+   * better21: own gothic scrollbars + fade shadows for every menu surface
+   * that can outgrow the screen (the whole start modal, the settings panel).
+   */
+  setupMenuScrollbars() {
+    for (const id of ['start-modal', 'settings-panel']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      const sync = () => {
+        const canUp = el.scrollTop > 4;
+        const canDown = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
+        el.classList.toggle('can-up', canUp);
+        el.classList.toggle('can-down', canDown);
+      };
+      el.addEventListener('scroll', sync, { passive: true });
+      if (typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(sync).observe(el);
+      }
+      window.addEventListener('resize', sync, { passive: true });
+      sync();
+    }
   }
 
   applyTitleCollapse() {
@@ -285,6 +353,12 @@ class GameApp {
       }
       for (const [btn, panel] of tabBtns) {
         document.getElementById(btn).classList.toggle('active', panel === panelId);
+      }
+      // better21: a fresh tab starts at its top and re-syncs the scroll fades
+      const modal = document.getElementById('start-modal');
+      if (modal) {
+        modal.scrollTop = 0;
+        modal.dispatchEvent(new Event('scroll'));
       }
     };
     for (const [btn, panel] of tabBtns) {
@@ -1235,7 +1309,7 @@ class GameApp {
     const hudVolSlider = document.getElementById('hud-volume-slider');
     const volLabel = document.getElementById('volume-label');
 
-    const updateVolume = (val) => {
+    const updateVolume = (val, persist = true) => {
       const norm = parseInt(val, 10) / 100;
       volSlider.value = val;
       hudVolSlider.value = val;
@@ -1243,12 +1317,23 @@ class GameApp {
       this.audio.setVolume(norm);
       this.menuMusic.setVolume(norm);
       if (this.yt) this.yt.setVolume(parseInt(val, 10));
+      // better21: persist the loudness (debounced — sliders fire rapidly)
+      if (persist) {
+        clearTimeout(this._volSaveTimer);
+        this._volSaveTimer = setTimeout(() => {
+          this.store.setSetting('volume', parseInt(val, 10) || 75);
+        }, 350);
+      }
     };
 
     volSlider.addEventListener('input', (e) => updateVolume(e.target.value));
     hudVolSlider.addEventListener('input', (e) => updateVolume(e.target.value));
 
-    const jump = () => {
+    // better21: restore the saved loudness once at boot (before any play())
+    const savedVol = Math.max(0, Math.min(100, parseInt(this.settings.volume, 10) || 75));
+    updateVolume(String(savedVol), false);
+
+    const jumpInner = () => {
       if (!this.isPlayingTrack || this.isGameOver || this.pauseState !== 'none') return;
 
       const trackTime = this.audio.getElapsedTime();
@@ -1304,6 +1389,16 @@ class GameApp {
         const ind = this.dom.beat;
         ind.classList.add('pulse');
         setTimeout(() => ind.classList.remove('pulse'), 90);
+      }
+    };
+
+    // better21: the input chain must survive ANY error inside the jump logic
+    // (this is the hardening for the "jump freezes the game" family of bugs)
+    const jump = () => {
+      try {
+        jumpInner();
+      } catch (err) {
+        console.warn('[NOCTURNE jump]', err);
       }
     };
 
@@ -1409,9 +1504,11 @@ class GameApp {
         e.stopPropagation();
         this.settings.quality = btn.dataset.q;
         this.store.setSetting('quality', btn.dataset.q);
+        this.store.setSetting('qualityChosen', true); // better21: explicit choice wins over the mobile preset
         this.particles.setQuality(btn.dataset.q);
         this.world.setQuality(btn.dataset.q); // better19: detail caps + layer re-bake
         this.world.glowEnabled = btn.dataset.q !== 'low';
+        if (this.ultra) this.applyUltra(); // keep the ultra tier stacked on top
         this.renderThemeCards();
       });
     });
@@ -1433,6 +1530,22 @@ class GameApp {
         this.store.setSetting('lyrics', this.settings.lyrics);
         this.world.lyricsEnabled = this.settings.lyrics;
         lyricsToggle.textContent = this.settings.lyrics ? 'ВКЛ' : 'ВЫКЛ';
+      });
+    }
+
+    // better21: КРАСИВЕЙШИЙ ВИЗУАЛ — the maximum-beauty master switch
+    const ultraBtn = document.getElementById('btn-toggle-ultra');
+    if (ultraBtn) {
+      ultraBtn.textContent = this.ultra ? 'ВКЛ' : 'ВЫКЛ';
+      ultraBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.ultra = !this.ultra;
+        this.store.setSetting('ultra', this.ultra);
+        ultraBtn.textContent = this.ultra ? 'ВКЛ' : 'ВЫКЛ';
+        this.applyUltra();
+        this.showMenuToast(this.ultra
+          ? '\u2726 КРАСИВЕЙШИЙ ВИЗУАЛ ВКЛЮЧЁН \u2726'
+          : 'Визуал вернулся к стандарту');
       });
     }
 
@@ -1878,10 +1991,16 @@ class GameApp {
       this._scaleCooldown -= rawDt;
       if (this._frameTimer > 1.5) {
         this._frameTimer = 0;
-        if (this._frameAvg > 22.5 && this.renderScale > 0.62) {
-          this.renderScale = Math.max(0.6, this.renderScale - 0.15);
+        // better21: thresholds depend on device class + the ultra beauty mode
+        // (ultra is a deliberate trade of fps for beauty, so it downgrades
+        // only on a real crawl and never below 0.85)
+        const down = this.ultra ? 30.0 : (IS_MOBILE ? 19.5 : 22.5);
+        const up = this.ultra ? 22.0 : (IS_MOBILE ? 15.5 : 14.5);
+        const floor = this.ultra ? 0.85 : (IS_MOBILE ? 0.5 : 0.6);
+        if (this._frameAvg > down && this.renderScale > floor + 0.02) {
+          this.renderScale = Math.max(floor, this.renderScale - 0.15);
           this.resize();
-        } else if (this._frameAvg < 14.5 && this.renderScale < 1.0 && this._scaleCooldown <= 0) {
+        } else if (this._frameAvg < up && this.renderScale < 1.0 && this._scaleCooldown <= 0) {
           this.renderScale = Math.min(1.0, this.renderScale + 0.1);
           this._scaleCooldown = 7;
           this.resize();
@@ -2034,11 +2153,15 @@ class GameApp {
     this.sceneCtx.save();
     if (spectating) this.applySpectateCamera(this.sceneCtx, dt);
     const mel = this.audio.getMelodyAt(elapsed);
-    this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale, {
-      t: elapsed,
-      melody: mel.level,
-      pitch: mel.pitch
-    });
+    // better21: fault isolation — a throwing background layer skips itself,
+    // the rest of the frame (player, particles, GL upload) still renders
+    try {
+      this.world.render(this.sceneCtx, this.beatPulse, this.audio.kickIntensity, this.finale, {
+        t: elapsed,
+        melody: mel.level,
+        pitch: mel.pitch
+      });
+    } catch (_) {}
     this.sceneCtx.restore();
 
     // Snare hit corner slash flash
@@ -2094,16 +2217,19 @@ class GameApp {
     }
     this.sceneCtx.save();
     if (spectating) this.applySpectateCamera(this.sceneCtx, false);
-    if (this.spectating) {
-      // my fallen runner fades into the ink — the friend owns the stage now
-      this.sceneCtx.save();
-      this.sceneCtx.globalAlpha = 0.16;
-      this.player.render(this.sceneCtx, this.beatPhase, false, this.world.groundY, this.beatPulse);
-      this.sceneCtx.restore();
-    } else {
-      this.player.render(this.sceneCtx, this.beatPhase, this.isPlayingTrack && !this.isGameOver, this.world.groundY, this.beatPulse);
-    }
-    this.particles.render(this.sceneCtx);
+    try {
+      // better21: actor layer is fault-isolated too
+      if (this.spectating) {
+        // my fallen runner fades into the ink — the friend owns the stage now
+        this.sceneCtx.save();
+        this.sceneCtx.globalAlpha = 0.16;
+        this.player.render(this.sceneCtx, this.beatPhase, false, this.world.groundY, this.beatPulse);
+        this.sceneCtx.restore();
+      } else {
+        this.player.render(this.sceneCtx, this.beatPhase, this.isPlayingTrack && !this.isGameOver, this.world.groundY, this.beatPulse);
+      }
+      this.particles.render(this.sceneCtx);
+    } catch (_) {}
     this.sceneCtx.restore();
     this.sceneCtx.restore();
 
@@ -2125,6 +2251,7 @@ class GameApp {
     gl.uniform3f(this.uAccent, themeVec.accent[0], themeVec.accent[1], themeVec.accent[2]);
     gl.uniform3f(this.uInk, themeVec.ink[0], themeVec.ink[1], themeVec.ink[2]);
     gl.uniform3f(this.uCrimson, themeVec.crimson[0], themeVec.crimson[1], themeVec.crimson[2]);
+    gl.uniform1f(this.uUltra, this.ultra ? 1 : 0); // better21: beauty pass gate
 
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
